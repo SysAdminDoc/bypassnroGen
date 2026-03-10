@@ -29,11 +29,8 @@ A professional GUI tool for generating Windows 11 OOBE bypass files (`bypass.cmd
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/YourUsername/BypassNRO-Generator.git
-cd BypassNRO-Generator
-
-# Run the application
+git clone https://github.com/SysAdminDoc/bypassnroGen.git
+cd bypassnroGen
 python BypassNRO_Generator.py
 ```
 
@@ -63,7 +60,7 @@ python BypassNRO_Generator.py
 During the OOBE (Out-of-Box Experience) screen:
 
 1. Press `Shift + F10` to open Command Prompt
-2. Run the following command:
+2. Run the following command (replace with your repo URL after uploading):
 
 ```cmd
 curl -L https://raw.githubusercontent.com/YourUsername/YourRepo/refs/heads/main/bypass.cmd -o bypass.cmd && bypass.cmd
@@ -108,12 +105,12 @@ An answer file that:
 - Removes bloatware
 - Configures Explorer and taskbar settings
 
-## Screenshots
+## Related Tools
 
-The application features a modern dark theme inspired by Spotify/Discord with:
-- Tabbed interface for easy navigation
-- Real-time preview of generated files
-- One-click export functionality
+| Tool | Description |
+|------|-------------|
+| **bypassnroGen** (this repo) | GUI to generate custom `bypass.cmd` and `unattend.xml` for Windows 11 OOBE bypass |
+| [bypassnro](https://github.com/SysAdminDoc/bypassnro) | Pre-built Windows provisioning scripts and deployment assets for automated workstation setup |
 
 ## Contributing
 
