@@ -8,8 +8,10 @@ Author: Generated for Matt's SysAdminDoc projects
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import re
 import base64
 from datetime import datetime
+from xml.sax.saxutils import escape as xml_escape
 
 class ModernScrollableFrame(ttk.Frame):
     """A scrollable frame with modern styling"""
@@ -57,6 +59,31 @@ class BypassNROGenerator:
         # Create main interface
         self.create_interface()
         
+    @staticmethod
+    def _esc(text):
+        """Escape text for safe inclusion in XML content."""
+        return xml_escape(str(text), {'"': '&quot;', "'": '&apos;'})
+
+    @staticmethod
+    def _validate_account_name(name):
+        """Validate Windows account name rules.
+
+        Returns (is_valid, error_message).
+        """
+        if not name:
+            return False, "Account name cannot be empty."
+        if len(name) > 20:
+            return False, "Account name must be 20 characters or fewer."
+        invalid_chars = set('|{}~[\\]^\':;<=>?@"')
+        found = [c for c in name if c in invalid_chars]
+        if found:
+            return False, f"Account name contains invalid characters: {''.join(set(found))}"
+        if name.startswith('.') or name.endswith('.'):
+            return False, "Account name cannot start or end with a period."
+        if ' ' in name:
+            return False, "Account name cannot contain spaces."
+        return True, ""
+
     def setup_styles(self):
         """Configure dark theme styles"""
         self.root.configure(bg='#121212')
@@ -123,6 +150,9 @@ class BypassNROGenerator:
         self.keyboard = tk.StringVar(value="0409:00000409")
         self.timezone = tk.StringVar(value="Eastern Standard Time")
         
+        # Computer name
+        self.computer_name = tk.StringVar(value="*")
+
         # Windows edition
         self.edition_mode = tk.StringVar(value="Unattended")
         self.windows_edition = tk.StringVar(value="Windows 11 Pro")
@@ -181,6 +211,9 @@ class BypassNROGenerator:
         self.classic_context_menu = tk.BooleanVar(value=True)
         self.launch_to_this_pc = tk.BooleanVar(value=True)
         
+        # Appearance
+        self.enable_dark_mode = tk.BooleanVar(value=False)
+
         # Taskbar settings
         self.taskbar_search = tk.StringVar(value="Hide")
         self.hide_task_view = tk.BooleanVar(value=True)
@@ -419,10 +452,22 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         scroll.pack(fill='both', expand=True)
         frame = scroll.scrollable_frame
         
+        # Computer name
+        cn_group = ttk.LabelFrame(frame, text="Computer Name", padding=15)
+        cn_group.pack(fill='x', padx=10, pady=10)
+
+        ttk.Label(cn_group, text="Set a custom hostname or leave as * for Windows to auto-generate one.", style='Dim.TLabel').pack(anchor='w', pady=(0, 10))
+
+        row = ttk.Frame(cn_group, style='TFrame')
+        row.pack(fill='x', pady=5)
+        ttk.Label(row, text="Computer Name:", width=20).pack(side='left')
+        ttk.Entry(row, textvariable=self.computer_name, width=30).pack(side='left', padx=10)
+        ttk.Label(row, text="(* = auto-generate, max 15 chars)", style='Dim.TLabel').pack(side='left')
+
         # Primary account
         group = ttk.LabelFrame(frame, text="Primary Local Account", padding=15)
         group.pack(fill='x', padx=10, pady=10)
-        
+
         ttk.Label(group, text="This account will be created automatically during setup.", style='Dim.TLabel').pack(anchor='w', pady=(0, 15))
         
         row = ttk.Frame(group, style='TFrame')
@@ -580,6 +625,12 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         ttk.Checkbutton(explorer_group, text="Use classic context menu (right-click)", variable=self.classic_context_menu).pack(anchor='w', pady=2)
         ttk.Checkbutton(explorer_group, text="Open File Explorer to 'This PC'", variable=self.launch_to_this_pc).pack(anchor='w', pady=2)
         
+        # Appearance
+        appearance_group = ttk.LabelFrame(frame, text="Appearance", padding=15)
+        appearance_group.pack(fill='x', padx=10, pady=10)
+
+        ttk.Checkbutton(appearance_group, text="Enable Dark Mode (apps and system)", variable=self.enable_dark_mode).pack(anchor='w', pady=2)
+
         # Taskbar
         taskbar_group = ttk.LabelFrame(frame, text="Taskbar", padding=15)
         taskbar_group.pack(fill='x', padx=10, pady=10)
@@ -593,7 +644,8 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         ttk.Checkbutton(taskbar_group, text="Hide Task View button", variable=self.hide_task_view).pack(anchor='w', pady=2)
         ttk.Checkbutton(taskbar_group, text="Disable Widgets", variable=self.disable_widgets).pack(anchor='w', pady=2)
         ttk.Checkbutton(taskbar_group, text="Hide Copilot button", variable=self.hide_copilot).pack(anchor='w', pady=2)
-        
+        ttk.Checkbutton(taskbar_group, text="Use small taskbar icons", variable=self.small_taskbar).pack(anchor='w', pady=2)
+
     def create_bloatware_tab(self):
         """Bloatware removal settings"""
         tab = ttk.Frame(self.notebook, style='TFrame')
@@ -809,7 +861,26 @@ reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" /v DisableW
 reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent" /v DisableSoftLanding /t REG_DWORD /d 1 /f
 
 '''
-        
+
+        if self.disable_wifi_sense.get():
+            cmd += ''':: Disable Wi-Fi Sense
+reg add "HKLM\\SOFTWARE\\Microsoft\\WcmSvc\\wifinetworkmanager\\config" /v AutoConnectAllowedOEM /t REG_DWORD /d 0 /f
+
+'''
+
+        if self.disable_activity_history.get():
+            cmd += ''':: Disable Activity History
+reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System" /v EnableActivityFeed /t REG_DWORD /d 0 /f
+reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System" /v PublishUserActivities /t REG_DWORD /d 0 /f
+
+'''
+
+        if self.disable_location.get():
+            cmd += ''':: Disable Location Services
+reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\LocationAndSensors" /v DisableLocation /t REG_DWORD /d 1 /f
+
+'''
+
         # Reboot command
         cmd += ''':: Reboot to apply changes
 echo.
@@ -823,10 +894,12 @@ shutdown /r /t 0
         
     def generate_unattend_xml(self):
         """Generate the unattend.xml content"""
+        esc = self._esc
         account_name = self.account_name.get() or "Admin"
         display_name = self.account_display.get() or account_name
         password = self.account_password.get()
-        
+        computer_name = self.computer_name.get() or "*"
+
         # Encode password if needed
         if password and self.obscure_passwords.get():
             password_encoded = base64.b64encode((password + "Password").encode('utf-16-le')).decode()
@@ -834,346 +907,267 @@ shutdown /r /t 0
         else:
             password_encoded = password
             password_plain = "true"
-            
+
         # Build bloatware removal list
         apps_to_remove = [app_id for app_id, var in self.bloatware_apps.items() if var.get()]
-        
-        xml = '''<?xml version="1.0" encoding="utf-8"?>
-<!--
-  Bypass NRO Generator - Windows 11 Unattended Installation
-  Generated: {date}
--->
-<unattend xmlns="urn:schemas-microsoft-com:unattend">
-'''.format(date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+        # Collect custom scripts from text widgets (not the unused StringVars)
+        system_script_lines = []
+        firstlogon_script_lines = []
+        try:
+            raw = self.system_script_text.get('1.0', 'end').strip()
+            for line in raw.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith('::'):
+                    system_script_lines.append(stripped)
+        except Exception:
+            pass
+        try:
+            raw = self.firstlogon_script_text.get('1.0', 'end').strip()
+            for line in raw.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith('::'):
+                    firstlogon_script_lines.append(stripped)
+        except Exception:
+            pass
+
+        xml = '<?xml version="1.0" encoding="utf-8"?>\n'
+        xml += '<!--\n'
+        xml += '  Bypass NRO Generator - Windows 11 Unattended Installation\n'
+        xml += '  Generated: {}\n'.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        xml += '-->\n'
+        xml += '<unattend xmlns="urn:schemas-microsoft-com:unattend">\n'
 
         # Windows PE pass - for system requirements bypass
         if self.bypass_requirements.get():
-            xml += '''  <settings pass="windowsPE">
-    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <RunSynchronous>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>2</Order>
-          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>3</Order>
-          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>4</Order>
-          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>5</Order>
-          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-      </RunSynchronous>
-    </component>
-  </settings>
-
-'''
+            xml += '  <settings pass="windowsPE">\n'
+            xml += '    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">\n'
+            xml += '      <RunSynchronous>\n'
+            for i, check in enumerate(["BypassTPMCheck", "BypassRAMCheck", "BypassSecureBootCheck", "BypassStorageCheck", "BypassCPUCheck"], 1):
+                xml += '        <RunSynchronousCommand wcm:action="add">\n'
+                xml += '          <Order>{}</Order>\n'.format(i)
+                xml += '          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v {} /t REG_DWORD /d 1 /f</Path>\n'.format(check)
+                xml += '        </RunSynchronousCommand>\n'
+            xml += '      </RunSynchronous>\n'
+            xml += '    </component>\n'
+            xml += '  </settings>\n\n'
 
         # Specialize pass
-        xml += '''  <settings pass="specialize">
-    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <RunSynchronous>
-'''
-        
+        xml += '  <settings pass="specialize">\n'
+        xml += '    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">\n'
+        xml += '      <RunSynchronous>\n'
+
         order = 1
-        
+
+        def _add_spec_cmd(path_str):
+            nonlocal order, xml
+            xml += '        <RunSynchronousCommand wcm:action="add">\n'
+            xml += '          <Order>{}</Order>\n'.format(order)
+            xml += '          <Path>{}</Path>\n'.format(esc(path_str))
+            xml += '        </RunSynchronousCommand>\n'
+            order += 1
+
         # BypassNRO
         if self.bypass_nro.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-'''.format(order=order)
-            order += 1
-            
+            _add_spec_cmd('reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f')
+
         # Long paths
         if self.enable_long_paths.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-'''.format(order=order)
-            order += 1
-            
+            _add_spec_cmd('reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f')
+
         # RDP
         if self.enable_rdp.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>{order2}</Order>
-          <Path>netsh advfirewall firewall set rule group="remote desktop" new enable=Yes</Path>
-        </RunSynchronousCommand>
-'''.format(order=order, order2=order+1)
-            order += 2
-            
+            _add_spec_cmd('reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f')
+            _add_spec_cmd('netsh advfirewall firewall set rule group="remote desktop" new enable=Yes')
+
         # PowerShell execution policy
         if self.allow_powershell_scripts.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>powershell.exe -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force"</Path>
-        </RunSynchronousCommand>
-'''.format(order=order)
-            order += 1
-            
+            _add_spec_cmd('powershell.exe -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force"')
+
         # Disable hibernation
         if self.disable_hibernation.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>powercfg.exe /HIBERNATE OFF</Path>
-        </RunSynchronousCommand>
-'''.format(order=order)
-            order += 1
-            
+            _add_spec_cmd('powercfg.exe /HIBERNATE OFF')
+
         # Prevent device encryption
         if self.prevent_device_encryption.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\BitLocker" /v PreventDeviceEncryption /t REG_DWORD /d 1 /f</Path>
-        </RunSynchronousCommand>
-'''.format(order=order)
-            order += 1
-            
+            _add_spec_cmd('reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\BitLocker" /v PreventDeviceEncryption /t REG_DWORD /d 1 /f')
+
         # Disable VBS
         if self.disable_vbs.get():
-            xml += '''        <RunSynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <Path>reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f</Path>
-        </RunSynchronousCommand>
-'''.format(order=order)
-            order += 1
-            
-        xml += '''      </RunSynchronous>
-    </component>
-    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <ComputerName>*</ComputerName>
-      <TimeZone>{timezone}</TimeZone>
-    </component>
-  </settings>
+            _add_spec_cmd('reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f')
 
-'''.format(timezone=self.timezone.get())
+        # Disable UAC prompt
+        if self.disable_uac_prompt.get():
+            _add_spec_cmd('reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v EnableLUA /t REG_DWORD /d 0 /f')
+
+        # Disable Defender
+        if self.disable_defender.get():
+            _add_spec_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender" /v DisableAntiSpyware /t REG_DWORD /d 1 /f')
+
+        # Disable fast boot
+        if self.disable_fast_boot.get():
+            _add_spec_cmd('reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f')
+
+        # Custom system scripts (specialize phase)
+        for line in system_script_lines:
+            _add_spec_cmd(line)
+
+        xml += '      </RunSynchronous>\n'
+        xml += '    </component>\n'
+        xml += '    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">\n'
+        xml += '      <ComputerName>{}</ComputerName>\n'.format(esc(computer_name))
+        xml += '      <TimeZone>{}</TimeZone>\n'.format(esc(self.timezone.get()))
+        xml += '    </component>\n'
+        xml += '  </settings>\n\n'
 
         # OOBE System pass
-        xml += '''  <settings pass="oobeSystem">
-    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <InputLocale>{keyboard}</InputLocale>
-      <SystemLocale>{locale}</SystemLocale>
-      <UILanguage>{ui_lang}</UILanguage>
-      <UserLocale>{locale}</UserLocale>
-    </component>
-    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <OOBE>
-        <HideEULAPage>{skip_eula}</HideEULAPage>
-        <HideOnlineAccountScreens>{hide_online}</HideOnlineAccountScreens>
-        <HideLocalAccountScreen>{hide_local}</HideLocalAccountScreen>
-        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
-        <ProtectYourPC>{protect_pc}</ProtectYourPC>
-      </OOBE>
-      <UserAccounts>
-        <LocalAccounts>
-          <LocalAccount wcm:action="add">
-            <Name>{account_name}</Name>
-            <DisplayName>{display_name}</DisplayName>
-            <Group>{group}</Group>
-            <Password>
-              <Value>{password}</Value>
-              <PlainText>{password_plain}</PlainText>
-            </Password>
-          </LocalAccount>
-        </LocalAccounts>
-      </UserAccounts>
-'''.format(
-            keyboard=self.keyboard.get(),
-            locale=self.locale.get(),
-            ui_lang=self.ui_language.get(),
-            skip_eula="true" if self.skip_eula.get() else "false",
-            hide_online="true" if self.hide_online_account.get() else "false",
-            hide_local="true" if self.hide_local_account.get() else "false",
-            protect_pc=self.protect_your_pc.get(),
-            account_name=account_name,
-            display_name=display_name,
-            group=self.account_group.get(),
-            password=password_encoded if password else "",
-            password_plain=password_plain
-        )
+        xml += '  <settings pass="oobeSystem">\n'
+        xml += '    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">\n'
+        xml += '      <InputLocale>{}</InputLocale>\n'.format(esc(self.keyboard.get()))
+        xml += '      <SystemLocale>{}</SystemLocale>\n'.format(esc(self.locale.get()))
+        xml += '      <UILanguage>{}</UILanguage>\n'.format(esc(self.ui_language.get()))
+        xml += '      <UserLocale>{}</UserLocale>\n'.format(esc(self.locale.get()))
+        xml += '    </component>\n'
+        xml += '    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">\n'
+        xml += '      <OOBE>\n'
+        xml += '        <HideEULAPage>{}</HideEULAPage>\n'.format("true" if self.skip_eula.get() else "false")
+        xml += '        <HideOnlineAccountScreens>{}</HideOnlineAccountScreens>\n'.format("true" if self.hide_online_account.get() else "false")
+        xml += '        <HideLocalAccountScreen>{}</HideLocalAccountScreen>\n'.format("true" if self.hide_local_account.get() else "false")
+        xml += '        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>\n'
+        xml += '        <ProtectYourPC>{}</ProtectYourPC>\n'.format(self.protect_your_pc.get())
+        xml += '      </OOBE>\n'
+        xml += '      <UserAccounts>\n'
+        xml += '        <LocalAccounts>\n'
+        xml += '          <LocalAccount wcm:action="add">\n'
+        xml += '            <Name>{}</Name>\n'.format(esc(account_name))
+        xml += '            <DisplayName>{}</DisplayName>\n'.format(esc(display_name))
+        xml += '            <Group>{}</Group>\n'.format(esc(self.account_group.get()))
+        xml += '            <Password>\n'
+        xml += '              <Value>{}</Value>\n'.format(esc(password_encoded) if password else "")
+        xml += '              <PlainText>{}</PlainText>\n'.format(password_plain)
+        xml += '            </Password>\n'
+        xml += '          </LocalAccount>\n'
+        xml += '        </LocalAccounts>\n'
+        xml += '      </UserAccounts>\n'
 
         # Auto logon
         if self.auto_logon.get():
-            xml += '''      <AutoLogon>
-        <Username>{account_name}</Username>
-        <Enabled>true</Enabled>
-        <LogonCount>1</LogonCount>
-        <Password>
-          <Value>{password}</Value>
-          <PlainText>{password_plain}</PlainText>
-        </Password>
-      </AutoLogon>
-'''.format(
-                account_name=account_name,
-                password=password_encoded if password else "",
-                password_plain=password_plain
-            )
+            xml += '      <AutoLogon>\n'
+            xml += '        <Username>{}</Username>\n'.format(esc(account_name))
+            xml += '        <Enabled>true</Enabled>\n'
+            xml += '        <LogonCount>1</LogonCount>\n'
+            xml += '        <Password>\n'
+            xml += '          <Value>{}</Value>\n'.format(esc(password_encoded) if password else "")
+            xml += '          <PlainText>{}</PlainText>\n'.format(password_plain)
+            xml += '        </Password>\n'
+            xml += '      </AutoLogon>\n'
 
         # First logon commands
-        xml += '''      <FirstLogonCommands>
-'''
+        xml += '      <FirstLogonCommands>\n'
         cmd_order = 1
-        
+
+        def _add_firstlogon_cmd(cmdline, description):
+            nonlocal cmd_order, xml
+            xml += '        <SynchronousCommand wcm:action="add">\n'
+            xml += '          <Order>{}</Order>\n'.format(cmd_order)
+            xml += '          <CommandLine>{}</CommandLine>\n'.format(esc(cmdline))
+            xml += '          <Description>{}</Description>\n'.format(esc(description))
+            xml += '        </SynchronousCommand>\n'
+            cmd_order += 1
+
         # Bloatware removal
         if apps_to_remove:
             apps_str = "', '".join(apps_to_remove)
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>powershell.exe -NoProfile -Command "$apps = @('{apps}'); foreach ($app in $apps) {{ Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue; Get-AppxProvisionedPackage -Online | Where-Object {{ $_.PackageName -like \\"*$app*\\" }} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue }}"</CommandLine>
-          <Description>Remove bloatware apps</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order, apps=apps_str)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd(
+                'powershell.exe -NoProfile -Command "$apps = @(\'{apps}\'); foreach ($app in $apps) {{ Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue; Get-AppxProvisionedPackage -Online | Where-Object {{ $_.PackageName -like \\"*$app*\\" }} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue }}"'.format(apps=apps_str),
+                "Remove bloatware apps"
+            )
+
         # Explorer tweaks
         if self.show_file_extensions.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Show file extensions</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f', "Show file extensions")
+
         if self.show_hidden_files.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v Hidden /t REG_DWORD /d 1 /f</CommandLine>
-          <Description>Show hidden files</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v Hidden /t REG_DWORD /d 1 /f', "Show hidden files")
+
+        if self.show_system_files.get():
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v ShowSuperHidden /t REG_DWORD /d 1 /f', "Show protected operating system files")
+
         if self.classic_context_menu.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Classes\\CLSID\\{{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}}\\InprocServer32" /ve /f</CommandLine>
-          <Description>Enable classic context menu</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Classes\\CLSID\\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\\InprocServer32" /ve /f', "Enable classic context menu")
+
         if self.launch_to_this_pc.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v LaunchTo /t REG_DWORD /d 1 /f</CommandLine>
-          <Description>Open Explorer to This PC</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v LaunchTo /t REG_DWORD /d 1 /f', "Open Explorer to This PC")
+
+        # Dark mode
+        if self.enable_dark_mode.get():
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v AppsUseLightTheme /t REG_DWORD /d 0 /f', "Enable dark mode for apps")
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v SystemUsesLightTheme /t REG_DWORD /d 0 /f', "Enable dark mode for system")
+
         # Taskbar settings
         if self.taskbar_search.get() == "Hide":
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Hide search box</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 0 /f', "Hide search box")
         elif self.taskbar_search.get() == "Icon":
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 1 /f</CommandLine>
-          <Description>Show search icon</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 1 /f', "Show search icon")
+
         if self.hide_task_view.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v ShowTaskViewButton /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Hide Task View button</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v ShowTaskViewButton /t REG_DWORD /d 0 /f', "Hide Task View button")
+
         if self.disable_widgets.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v TaskbarDa /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Disable widgets</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v TaskbarDa /t REG_DWORD /d 0 /f', "Disable widgets")
+
         if self.hide_copilot.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v ShowCopilotButton /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Hide Copilot button</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v ShowCopilotButton /t REG_DWORD /d 0 /f', "Hide Copilot button")
+
+        if self.small_taskbar.get():
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v TaskbarSi /t REG_DWORD /d 0 /f', "Use small taskbar icons")
+
         # Edge settings
         if self.hide_edge_fre.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge" /v HideFirstRunExperience /t REG_DWORD /d 1 /f</CommandLine>
-          <Description>Hide Edge First Run Experience</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
-        if self.disable_edge_startup.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge" /v StartupBoostEnabled /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Disable Edge Startup Boost</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
-        if self.delete_edge_shortcut.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>cmd /c del /q "%PUBLIC%\\Desktop\\Microsoft Edge.lnk" 2>nul</CommandLine>
-          <Description>Delete Edge desktop shortcut</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
-        # Privacy settings
-        if self.disable_telemetry.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Disable telemetry</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
-            
-        if self.disable_advertising_id.get():
-            xml += '''        <SynchronousCommand wcm:action="add">
-          <Order>{order}</Order>
-          <CommandLine>reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo" /v Enabled /t REG_DWORD /d 0 /f</CommandLine>
-          <Description>Disable advertising ID</Description>
-        </SynchronousCommand>
-'''.format(order=cmd_order)
-            cmd_order += 1
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge" /v HideFirstRunExperience /t REG_DWORD /d 1 /f', "Hide Edge First Run Experience")
 
-        xml += '''      </FirstLogonCommands>
-    </component>
-  </settings>
-</unattend>
-'''
-        
+        if self.disable_edge_startup.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge" /v StartupBoostEnabled /t REG_DWORD /d 0 /f', "Disable Edge Startup Boost")
+
+        if self.delete_edge_shortcut.get():
+            _add_firstlogon_cmd('cmd /c del /q "%PUBLIC%\\Desktop\\Microsoft Edge.lnk" 2>nul', "Delete Edge desktop shortcut")
+
+        if self.make_edge_uninstallable.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate" /v Allowsxs /t REG_DWORD /d 1 /f', "Allow Edge side-by-side (make uninstallable)")
+
+        # Privacy settings in FirstLogonCommands
+        if self.disable_telemetry.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f', "Disable telemetry")
+
+        if self.disable_advertising_id.get():
+            _add_firstlogon_cmd('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\AdvertisingInfo" /v Enabled /t REG_DWORD /d 0 /f', "Disable advertising ID")
+
+        if self.disable_wifi_sense.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Microsoft\\WcmSvc\\wifinetworkmanager\\config" /v AutoConnectAllowedOEM /t REG_DWORD /d 0 /f', "Disable Wi-Fi Sense")
+
+        if self.disable_activity_history.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System" /v EnableActivityFeed /t REG_DWORD /d 0 /f', "Disable activity history")
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System" /v PublishUserActivities /t REG_DWORD /d 0 /f', "Disable publish user activities")
+
+        if self.disable_location.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\LocationAndSensors" /v DisableLocation /t REG_DWORD /d 1 /f', "Disable location services")
+
+        # System tweaks in FirstLogonCommands
+        if self.disable_auto_restart.get():
+            _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU" /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f', "Prevent automatic restart after updates")
+
+        if self.disable_system_sounds.get():
+            _add_firstlogon_cmd('reg add "HKCU\\AppEvents\\Schemes" /ve /t REG_SZ /d ".None" /f', "Disable system sounds")
+
+        # Custom first-logon scripts
+        for line in firstlogon_script_lines:
+            _add_firstlogon_cmd(line, "Custom script")
+
+        xml += '      </FirstLogonCommands>\n'
+        xml += '    </component>\n'
+        xml += '  </settings>\n'
+        xml += '</unattend>\n'
+
         return xml
         
     def update_preview(self):
@@ -1191,11 +1185,19 @@ shutdown /r /t 0
         
     def export_files(self):
         """Export bypass.cmd and unattend.xml files"""
+        # Validate account name before export
+        account_name = self.account_name.get()
+        if account_name:
+            valid, err = self._validate_account_name(account_name)
+            if not valid:
+                messagebox.showerror("Validation Error", f"Account name invalid:\n{err}")
+                return
+
         # Ask for directory
         directory = filedialog.askdirectory(title="Select Export Directory")
         if not directory:
             return
-            
+
         try:
             # Export bypass.cmd
             bypass_path = os.path.join(directory, "bypass.cmd")
