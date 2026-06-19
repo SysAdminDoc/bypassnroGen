@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import re
+import json
 import base64
 from datetime import datetime
 from xml.sax.saxutils import escape as xml_escape
@@ -83,6 +84,32 @@ class BypassNROGenerator:
         if ' ' in name:
             return False, "Account name cannot contain spaces."
         return True, ""
+
+    @staticmethod
+    def _create_tooltip(widget, text):
+        """Attach a hover tooltip to a widget."""
+        tip_window = [None]
+
+        def show(event):
+            if tip_window[0]:
+                return
+            tw = tk.Toplevel(widget)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{event.x_root + 15}+{event.y_root + 10}")
+            label = tk.Label(tw, text=text, justify='left', background='#ffffe0',
+                             foreground='#000000', relief='solid', borderwidth=1,
+                             font=('Segoe UI', 9), wraplength=300)
+            label.pack()
+            tip_window[0] = tw
+
+        def hide(_event):
+            tw = tip_window[0]
+            if tw:
+                tw.destroy()
+                tip_window[0] = None
+
+        widget.bind('<Enter>', show)
+        widget.bind('<Leave>', hide)
 
     def setup_styles(self):
         """Configure dark theme styles"""
@@ -253,6 +280,9 @@ class BypassNROGenerator:
             'Microsoft.SkypeApp': tk.BooleanVar(value=True),
         }
         
+        # Output format
+        self.output_autounattend = tk.BooleanVar(value=False)
+
         # Custom scripts
         self.system_script = tk.StringVar(value="")
         self.firstlogon_script = tk.StringVar(value="")
@@ -277,6 +307,8 @@ class BypassNROGenerator:
         ttk.Button(btn_frame, text="Export Files", style='Accent.TButton', command=self.export_files).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Preview", style='TButton', command=self.preview_files).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Load Preset", style='TButton', command=self.load_preset).pack(side='right', padx=5)
+        ttk.Button(btn_frame, text="Save Profile", style='TButton', command=self.save_profile).pack(side='right', padx=5)
+        ttk.Button(btn_frame, text="Load Profile", style='TButton', command=self.load_profile).pack(side='right', padx=5)
         
         # Notebook for tabs
         self.notebook = ttk.Notebook(main_frame)
@@ -349,6 +381,13 @@ class BypassNROGenerator:
         self.github_branch.trace_add('write', update_urls)
         update_urls()
         
+        # Output options
+        output_group = ttk.LabelFrame(frame, text="Output Options", padding=15)
+        output_group.pack(fill='x', padx=10, pady=10)
+
+        ttk.Checkbutton(output_group, text="Also export autounattend.xml (for USB root -- bypasses OOBE before setup starts)", variable=self.output_autounattend).pack(anchor='w', pady=2)
+        ttk.Label(output_group, text="Place autounattend.xml in the root of your USB installer for automatic unattended setup.", style='Dim.TLabel').pack(anchor='w', pady=(2, 0))
+
         # Instructions
         info_group = ttk.LabelFrame(frame, text="How to Use", padding=15)
         info_group.pack(fill='x', padx=10, pady=10)
@@ -669,54 +708,59 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         group = ttk.LabelFrame(frame, text="Windows Apps", padding=15)
         group.pack(fill='x', padx=10, pady=10)
         
-        app_names = {
-            'Microsoft.549981C3F5F10': 'Cortana',
-            'Microsoft.BingNews': 'News',
-            'Microsoft.BingWeather': 'Weather',
-            'Microsoft.GetHelp': 'Get Help',
-            'Microsoft.Getstarted': 'Tips',
-            'Microsoft.MicrosoftOfficeHub': 'Office Hub',
-            'Microsoft.MicrosoftSolitaireCollection': 'Solitaire',
-            'Microsoft.MicrosoftStickyNotes': 'Sticky Notes',
-            'Microsoft.OutlookForWindows': 'Outlook',
-            'Microsoft.People': 'People',
-            'Microsoft.PowerAutomateDesktop': 'Power Automate',
-            'Microsoft.Todos': 'To Do',
-            'Microsoft.WindowsAlarms': 'Alarms & Clock',
-            'Microsoft.WindowsCamera': 'Camera',
-            'Microsoft.WindowsFeedbackHub': 'Feedback Hub',
-            'Microsoft.WindowsMaps': 'Maps',
-            'Microsoft.WindowsSoundRecorder': 'Voice Recorder',
-            'Microsoft.Xbox.TCUI': 'Xbox TCUI',
-            'Microsoft.XboxGameOverlay': 'Xbox Game Overlay',
-            'Microsoft.XboxGamingOverlay': 'Xbox Gaming Overlay',
-            'Microsoft.XboxIdentityProvider': 'Xbox Identity',
-            'Microsoft.XboxSpeechToTextOverlay': 'Xbox Speech',
-            'Microsoft.YourPhone': 'Phone Link',
-            'Microsoft.ZuneMusic': 'Media Player',
-            'Microsoft.ZuneVideo': 'Movies & TV',
-            'Clipchamp.Clipchamp': 'Clipchamp',
-            'MicrosoftTeams': 'Teams',
-            'Microsoft.SkypeApp': 'Skype',
+        # App metadata: (display_name, tooltip_justification)
+        app_info = {
+            'Microsoft.549981C3F5F10': ('Cortana', 'Safe to remove. Cortana is deprecated in Win11.'),
+            'Microsoft.BingNews': ('News', 'Safe to remove. Bing News feed widget.'),
+            'Microsoft.BingWeather': ('Weather', 'Safe to remove. Taskbar weather widget data source.'),
+            'Microsoft.GetHelp': ('Get Help', 'Safe to remove. Online help client; does not affect OS stability.'),
+            'Microsoft.Getstarted': ('Tips', 'Safe to remove. Shows Windows tips and suggestions.'),
+            'Microsoft.MicrosoftOfficeHub': ('Office Hub', 'Safe to remove. Office promotion hub; does not affect installed Office.'),
+            'Microsoft.MicrosoftSolitaireCollection': ('Solitaire', 'Safe to remove. Card games with ads.'),
+            'Microsoft.MicrosoftStickyNotes': ('Sticky Notes', 'Caution: some users rely on Sticky Notes for quick notes.'),
+            'Microsoft.OutlookForWindows': ('Outlook', 'Safe to remove. New Outlook client; does not affect classic Outlook.'),
+            'Microsoft.People': ('People', 'Safe to remove. Contact manager; Mail app may show reduced functionality.'),
+            'Microsoft.PowerAutomateDesktop': ('Power Automate', 'Safe to remove. RPA tool for enterprise automation.'),
+            'Microsoft.Todos': ('To Do', 'Safe to remove. Task management app.'),
+            'Microsoft.WindowsAlarms': ('Alarms & Clock', 'Caution: removes alarms, timer, and world clock functionality.'),
+            'Microsoft.WindowsCamera': ('Camera', 'Caution: removes the default camera app. Webcams still work in other apps.'),
+            'Microsoft.WindowsFeedbackHub': ('Feedback Hub', 'Safe to remove. Used to send feedback to Microsoft.'),
+            'Microsoft.WindowsMaps': ('Maps', 'Safe to remove. Offline maps app.'),
+            'Microsoft.WindowsSoundRecorder': ('Voice Recorder', 'Caution: removes the built-in audio recorder.'),
+            'Microsoft.Xbox.TCUI': ('Xbox TCUI', 'Safe to remove unless using Xbox services. Part of Xbox infrastructure.'),
+            'Microsoft.XboxGameOverlay': ('Xbox Game Overlay', 'Safe to remove unless using Xbox Game Bar (Win+G).'),
+            'Microsoft.XboxGamingOverlay': ('Xbox Gaming Overlay', 'Safe to remove unless using Xbox Game Bar features.'),
+            'Microsoft.XboxIdentityProvider': ('Xbox Identity', 'Warning: removing breaks Xbox sign-in and MS Store game purchases.'),
+            'Microsoft.XboxSpeechToTextOverlay': ('Xbox Speech', 'Safe to remove. Xbox voice chat transcription.'),
+            'Microsoft.YourPhone': ('Phone Link', 'Safe to remove. Links Android/iPhone to Windows.'),
+            'Microsoft.ZuneMusic': ('Media Player', 'Caution: removes the default music player (Groove/Media Player).'),
+            'Microsoft.ZuneVideo': ('Movies & TV', 'Caution: removes the default video player. Use VLC as alternative.'),
+            'Clipchamp.Clipchamp': ('Clipchamp', 'Safe to remove. Basic video editor.'),
+            'MicrosoftTeams': ('Teams', 'Safe to remove. Teams chat integration in taskbar.'),
+            'Microsoft.SkypeApp': ('Skype', 'Safe to remove. Legacy Skype client.'),
         }
-        
+
         # Create 3-column layout
         apps_list = list(self.bloatware_apps.items())
         cols = 3
         rows_per_col = (len(apps_list) + cols - 1) // cols
-        
+
         col_frames = []
         for i in range(cols):
             col_frame = ttk.Frame(group, style='TFrame')
             col_frame.pack(side='left', fill='both', expand=True, padx=5)
             col_frames.append(col_frame)
-        
+
         for idx, (app_id, var) in enumerate(apps_list):
             col_idx = idx // rows_per_col
             if col_idx >= cols:
                 col_idx = cols - 1
-            display_name = app_names.get(app_id, app_id.split('.')[-1])
-            ttk.Checkbutton(col_frames[col_idx], text=display_name, variable=var).pack(anchor='w', pady=1)
+            info = app_info.get(app_id, (app_id.split('.')[-1], ''))
+            display_name, tooltip_text = info
+            cb = ttk.Checkbutton(col_frames[col_idx], text=display_name, variable=var)
+            cb.pack(anchor='w', pady=1)
+            if tooltip_text:
+                self._create_tooltip(cb, tooltip_text)
             
     def set_all_bloatware(self, value):
         """Set all bloatware checkboxes"""
@@ -1169,7 +1213,124 @@ shutdown /r /t 0
         xml += '</unattend>\n'
 
         return xml
-        
+
+    def generate_autounattend_xml(self):
+        """Generate autounattend.xml for USB root.
+
+        This is essentially the same as unattend.xml but is named
+        autounattend.xml so that Windows Setup picks it up automatically
+        from the USB root before the user interacts with OOBE at all.
+        The content is identical -- the difference is purely in the
+        filename and placement.
+        """
+        return self.generate_unattend_xml()
+
+    def _get_profile_dict(self):
+        """Serialize all current settings into a JSON-serializable dict."""
+        profile = {}
+        # Collect all BooleanVar / StringVar attributes
+        bool_keys = [
+            'skip_eula', 'skip_machine_oobe', 'skip_user_oobe',
+            'hide_online_account', 'hide_local_account', 'auto_logon',
+            'obscure_passwords', 'disable_telemetry', 'disable_cortana',
+            'disable_consumer_features', 'disable_wifi_sense',
+            'disable_activity_history', 'disable_location',
+            'disable_advertising_id', 'bypass_requirements', 'bypass_nro',
+            'enable_long_paths', 'enable_rdp', 'allow_powershell_scripts',
+            'disable_uac_prompt', 'disable_defender',
+            'prevent_device_encryption', 'disable_vbs',
+            'disable_auto_restart', 'disable_system_sounds',
+            'disable_hibernation', 'disable_fast_boot',
+            'hide_edge_fre', 'disable_edge_startup',
+            'delete_edge_shortcut', 'make_edge_uninstallable',
+            'show_file_extensions', 'show_hidden_files',
+            'show_system_files', 'classic_context_menu',
+            'launch_to_this_pc', 'enable_dark_mode',
+            'hide_task_view', 'disable_widgets', 'hide_copilot',
+            'small_taskbar', 'output_autounattend',
+        ]
+        str_keys = [
+            'github_user', 'github_repo', 'github_branch',
+            'ui_language', 'locale', 'keyboard', 'timezone',
+            'edition_mode', 'windows_edition', 'product_key',
+            'account_name', 'account_display', 'account_password',
+            'account_group', 'protect_your_pc', 'taskbar_search',
+            'computer_name',
+        ]
+        for key in bool_keys:
+            profile[key] = getattr(self, key).get()
+        for key in str_keys:
+            profile[key] = getattr(self, key).get()
+        # Bloatware
+        profile['bloatware'] = {app_id: var.get() for app_id, var in self.bloatware_apps.items()}
+        # Custom scripts (from text widgets)
+        try:
+            profile['system_script'] = self.system_script_text.get('1.0', 'end').rstrip('\n')
+        except Exception:
+            profile['system_script'] = ''
+        try:
+            profile['firstlogon_script'] = self.firstlogon_script_text.get('1.0', 'end').rstrip('\n')
+        except Exception:
+            profile['firstlogon_script'] = ''
+        return profile
+
+    def _load_profile_dict(self, profile):
+        """Apply a profile dict to the current settings."""
+        for key, value in profile.items():
+            if key == 'bloatware':
+                for app_id, checked in value.items():
+                    if app_id in self.bloatware_apps:
+                        self.bloatware_apps[app_id].set(checked)
+            elif key == 'system_script':
+                try:
+                    self.system_script_text.delete('1.0', 'end')
+                    self.system_script_text.insert('1.0', value)
+                except Exception:
+                    pass
+            elif key == 'firstlogon_script':
+                try:
+                    self.firstlogon_script_text.delete('1.0', 'end')
+                    self.firstlogon_script_text.insert('1.0', value)
+                except Exception:
+                    pass
+            else:
+                attr = getattr(self, key, None)
+                if attr is not None and hasattr(attr, 'set'):
+                    attr.set(value)
+
+    def save_profile(self):
+        """Save current settings to a JSON profile file."""
+        path = filedialog.asksaveasfilename(
+            title="Save Profile",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            profile = self._get_profile_dict()
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(profile, f, indent=2)
+            messagebox.showinfo("Profile Saved", f"Profile saved to:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save profile:\n{str(e)}")
+
+    def load_profile(self):
+        """Load settings from a JSON profile file."""
+        path = filedialog.askopenfilename(
+            title="Load Profile",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                profile = json.load(f)
+            self._load_profile_dict(profile)
+            messagebox.showinfo("Profile Loaded", f"Profile loaded from:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Failed to load profile:\n{str(e)}")
+
     def update_preview(self):
         """Update the preview texts"""
         self.bypass_preview.delete('1.0', 'end')
@@ -1208,11 +1369,20 @@ shutdown /r /t 0
             unattend_path = os.path.join(directory, "unattend.xml")
             with open(unattend_path, 'w', encoding='utf-8') as f:
                 f.write(self.generate_unattend_xml())
-                
-            messagebox.showinfo("Export Complete", 
+
+            exported = [f"bypass.cmd: {bypass_path}", f"unattend.xml: {unattend_path}"]
+
+            # Optionally export autounattend.xml
+            if self.output_autounattend.get():
+                autounattend_path = os.path.join(directory, "autounattend.xml")
+                with open(autounattend_path, 'w', encoding='utf-8') as f:
+                    f.write(self.generate_autounattend_xml())
+                exported.append(f"autounattend.xml: {autounattend_path}")
+
+            files_list = "\n".join(exported)
+            messagebox.showinfo("Export Complete",
                 f"Files exported successfully!\n\n"
-                f"bypass.cmd: {bypass_path}\n"
-                f"unattend.xml: {unattend_path}\n\n"
+                f"{files_list}\n\n"
                 f"Upload these files to your GitHub repository.")
                 
         except Exception as e:
