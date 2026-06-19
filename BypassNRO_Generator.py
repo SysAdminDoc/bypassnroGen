@@ -225,6 +225,15 @@ class BypassNROGenerator:
         self.disable_hibernation = tk.BooleanVar(value=True)
         self.disable_fast_boot = tk.BooleanVar(value=False)
         
+        # OneDrive
+        self.remove_onedrive = tk.BooleanVar(value=False)
+
+        # Power plan
+        self.power_plan = tk.StringVar(value="Default")
+
+        # Security: cleanup Panther password
+        self.cleanup_panther_password = tk.BooleanVar(value=True)
+
         # Edge settings
         self.hide_edge_fre = tk.BooleanVar(value=True)
         self.disable_edge_startup = tk.BooleanVar(value=True)
@@ -635,15 +644,26 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         ttk.Checkbutton(sys_group, text="Prevent Windows Update automatic reboots", variable=self.disable_auto_restart).pack(anchor='w', pady=2)
         ttk.Checkbutton(sys_group, text="Disable system sounds", variable=self.disable_system_sounds).pack(anchor='w', pady=2)
         ttk.Checkbutton(sys_group, text="Disable hibernation", variable=self.disable_hibernation).pack(anchor='w', pady=2)
-        
+
+        # Power plan
+        power_group = ttk.LabelFrame(frame, text="Power Plan", padding=15)
+        power_group.pack(fill='x', padx=10, pady=10)
+
+        ttk.Label(power_group, text="Select the active power plan after setup:", style='Dim.TLabel').pack(anchor='w', pady=(0, 5))
+        power_frame = ttk.Frame(power_group, style='TFrame')
+        power_frame.pack(fill='x', pady=5)
+        for text, value in [("Default", "Default"), ("High Performance", "High"), ("Ultimate Performance", "Ultimate")]:
+            ttk.Radiobutton(power_frame, text=text, variable=self.power_plan, value=value).pack(side='left', padx=10)
+
         # Security (with warnings)
         sec_group = ttk.LabelFrame(frame, text="Security Settings (Use with caution)", padding=15)
         sec_group.pack(fill='x', padx=10, pady=10)
-        
+
         ttk.Checkbutton(sec_group, text="Prevent Device Encryption (BitLocker)", variable=self.prevent_device_encryption).pack(anchor='w', pady=2)
         ttk.Checkbutton(sec_group, text="Disable Core Isolation / VBS (improves VM performance)", variable=self.disable_vbs).pack(anchor='w', pady=2)
         ttk.Checkbutton(sec_group, text="Disable UAC prompts (not recommended)", variable=self.disable_uac_prompt).pack(anchor='w', pady=2)
         ttk.Checkbutton(sec_group, text="Disable Windows Defender (not recommended)", variable=self.disable_defender).pack(anchor='w', pady=2)
+        ttk.Checkbutton(sec_group, text="Clean up Panther unattend.xml after first logon (removes stored password)", variable=self.cleanup_panther_password).pack(anchor='w', pady=2)
         
         # Edge settings
         edge_group = ttk.LabelFrame(frame, text="Microsoft Edge", padding=15)
@@ -653,6 +673,7 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         ttk.Checkbutton(edge_group, text="Disable Edge Startup Boost and Background mode", variable=self.disable_edge_startup).pack(anchor='w', pady=2)
         ttk.Checkbutton(edge_group, text="Delete Edge desktop shortcut", variable=self.delete_edge_shortcut).pack(anchor='w', pady=2)
         ttk.Checkbutton(edge_group, text="Make Edge uninstallable (may cause update issues)", variable=self.make_edge_uninstallable).pack(anchor='w', pady=2)
+        ttk.Checkbutton(edge_group, text="Remove OneDrive", variable=self.remove_onedrive).pack(anchor='w', pady=2)
         
         # Explorer
         explorer_group = ttk.LabelFrame(frame, text="File Explorer", padding=15)
@@ -1179,6 +1200,17 @@ shutdown /r /t 0
         if self.make_edge_uninstallable.get():
             _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate" /v Allowsxs /t REG_DWORD /d 1 /f', "Allow Edge side-by-side (make uninstallable)")
 
+        # OneDrive removal
+        if self.remove_onedrive.get():
+            _add_firstlogon_cmd('powershell.exe -NoProfile -Command "Get-Process OneDrive -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2; if (Test-Path \\"$env:SystemRoot\\SysWOW64\\OneDriveSetup.exe\\") { & \\"$env:SystemRoot\\SysWOW64\\OneDriveSetup.exe\\" /uninstall } elseif (Test-Path \\"$env:SystemRoot\\System32\\OneDriveSetup.exe\\") { & \\"$env:SystemRoot\\System32\\OneDriveSetup.exe\\" /uninstall }"', "Remove OneDrive")
+
+        # Power plan
+        if self.power_plan.get() == "High":
+            _add_firstlogon_cmd('powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c', "Set High Performance power plan")
+        elif self.power_plan.get() == "Ultimate":
+            _add_firstlogon_cmd('powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61', "Add Ultimate Performance power plan")
+            _add_firstlogon_cmd('powercfg /setactive e9a42b02-d5df-448d-aa00-03f14749eb61', "Set Ultimate Performance power plan")
+
         # Privacy settings in FirstLogonCommands
         if self.disable_telemetry.get():
             _add_firstlogon_cmd('reg add "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f', "Disable telemetry")
@@ -1206,6 +1238,10 @@ shutdown /r /t 0
         # Custom first-logon scripts
         for line in firstlogon_script_lines:
             _add_firstlogon_cmd(line, "Custom script")
+
+        # Panther password cleanup (should run last)
+        if self.cleanup_panther_password.get():
+            _add_firstlogon_cmd('cmd /c del /q /f "C:\\Windows\\Panther\\unattend.xml" 2>nul', "Clean up Panther unattend.xml (remove stored password)")
 
         xml += '      </FirstLogonCommands>\n'
         xml += '    </component>\n'
@@ -1241,6 +1277,7 @@ shutdown /r /t 0
             'prevent_device_encryption', 'disable_vbs',
             'disable_auto_restart', 'disable_system_sounds',
             'disable_hibernation', 'disable_fast_boot',
+            'remove_onedrive', 'cleanup_panther_password',
             'hide_edge_fre', 'disable_edge_startup',
             'delete_edge_shortcut', 'make_edge_uninstallable',
             'show_file_extensions', 'show_hidden_files',
@@ -1255,7 +1292,7 @@ shutdown /r /t 0
             'edition_mode', 'windows_edition', 'product_key',
             'account_name', 'account_display', 'account_password',
             'account_group', 'protect_your_pc', 'taskbar_search',
-            'computer_name',
+            'computer_name', 'power_plan',
         ]
         for key in bool_keys:
             profile[key] = getattr(self, key).get()
@@ -1473,6 +1510,8 @@ shutdown /r /t 0
         self.preset_privacy()
         for var in self.bloatware_apps.values():
             var.set(True)
+        self.remove_onedrive.set(True)
+        self.enable_dark_mode.set(True)
 
 
 def main():
