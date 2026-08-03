@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Bypass NRO Generator - Windows 11 Unattended Installation
-  Generated: 2026-01-27 16:29:57
+  Version: 1.2.0
+  Generated: 2026-06-27 10:38:41
 -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
   <settings pass="windowsPE">
-    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
@@ -36,15 +37,15 @@
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Path>reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+          <Path>reg add &quot;HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE&quot; /v BypassNRO /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
           <Order>2</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f</Path>
+          <Path>reg add &quot;HKLM\SYSTEM\CurrentControlSet\Control\FileSystem&quot; /v LongPathsEnabled /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
           <Order>3</Order>
-          <Path>powershell.exe -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force"</Path>
+          <Path>powershell.exe -Command &quot;Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force&quot;</Path>
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
           <Order>4</Order>
@@ -52,7 +53,7 @@
         </RunSynchronousCommand>
         <RunSynchronousCommand wcm:action="add">
           <Order>5</Order>
-          <Path>reg add "HKLM\SYSTEM\CurrentControlSet\Control\BitLocker" /v PreventDeviceEncryption /t REG_DWORD /d 1 /f</Path>
+          <Path>reg add &quot;HKLM\SYSTEM\CurrentControlSet\Control\BitLocker&quot; /v PreventDeviceEncryption /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
     </component>
@@ -102,68 +103,98 @@
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <CommandLine>powershell.exe -NoProfile -Command "$apps = @('Microsoft.549981C3F5F10', 'Microsoft.BingNews', 'Microsoft.BingWeather', 'Microsoft.GetHelp', 'Microsoft.Getstarted', 'Microsoft.MicrosoftOfficeHub', 'Microsoft.MicrosoftSolitaireCollection', 'Microsoft.OutlookForWindows', 'Microsoft.People', 'Microsoft.PowerAutomateDesktop', 'Microsoft.Todos', 'Microsoft.WindowsFeedbackHub', 'Microsoft.WindowsMaps', 'Microsoft.Xbox.TCUI', 'Microsoft.XboxGameOverlay', 'Microsoft.XboxGamingOverlay', 'Microsoft.XboxIdentityProvider', 'Microsoft.XboxSpeechToTextOverlay', 'Microsoft.YourPhone', 'Clipchamp.Clipchamp', 'MicrosoftTeams', 'Microsoft.SkypeApp'); foreach ($app in $apps) { Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue; Get-AppxProvisionedPackage -Online | Where-Object { $_.PackageName -like \"*$app*\" } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue }"</CommandLine>
-          <Description>Remove bloatware apps</Description>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;$apps = @(&apos;Microsoft.549981C3F5F10&apos;, &apos;Microsoft.BingNews&apos;, &apos;Microsoft.BingWeather&apos;, &apos;Microsoft.GetHelp&apos;, &apos;Microsoft.Getstarted&apos;, &apos;Microsoft.MicrosoftOfficeHub&apos;, &apos;Microsoft.MicrosoftSolitaireCollection&apos;, &apos;Microsoft.OutlookForWindows&apos;, &apos;Microsoft.People&apos;, &apos;Microsoft.PowerAutomateDesktop&apos;, &apos;Microsoft.Todos&apos;, &apos;Microsoft.WindowsFeedbackHub&apos;, &apos;Microsoft.WindowsMaps&apos;, &apos;Microsoft.Xbox.TCUI&apos;, &apos;Microsoft.XboxGameOverlay&apos;, &apos;Microsoft.XboxGamingOverlay&apos;, &apos;Microsoft.XboxIdentityProvider&apos;, &apos;Microsoft.XboxSpeechToTextOverlay&apos;, &apos;Microsoft.YourPhone&apos;, &apos;Clipchamp.Clipchamp&apos;, &apos;MicrosoftTeams&apos;, &apos;Microsoft.SkypeApp&apos;); foreach ($app in $apps) {;   Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue;   Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -eq $app -or $_.PackageName -like \&quot;*$app*\&quot; } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue; }&quot;</CommandLine>
+          <Description>Remove bloatware apps (Provisioned + per-user)</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>2</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced&quot; /v HideFileExt /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Show file extensions</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>3</Order>
-          <CommandLine>reg add "HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" /ve /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32&quot; /ve /f</CommandLine>
           <Description>Enable classic context menu</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>4</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v LaunchTo /t REG_DWORD /d 1 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced&quot; /v LaunchTo /t REG_DWORD /d 1 /f</CommandLine>
           <Description>Open Explorer to This PC</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>5</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Search&quot; /v SearchboxTaskbarMode /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Hide search box</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>6</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v ShowTaskViewButton /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced&quot; /v ShowTaskViewButton /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Hide Task View button</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>7</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v TaskbarDa /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced&quot; /v TaskbarDa /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Disable widgets</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>8</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v ShowCopilotButton /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced&quot; /v ShowCopilotButton /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Hide Copilot button</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>9</Order>
-          <CommandLine>reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v HideFirstRunExperience /t REG_DWORD /d 1 /f</CommandLine>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Edge&quot; /v HideFirstRunExperience /t REG_DWORD /d 1 /f</CommandLine>
           <Description>Hide Edge First Run Experience</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>10</Order>
-          <CommandLine>reg add "HKLM\SOFTWARE\Policies\Microsoft\Edge" /v StartupBoostEnabled /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Edge&quot; /v StartupBoostEnabled /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Disable Edge Startup Boost</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>11</Order>
-          <CommandLine>cmd /c del /q "%PUBLIC%\Desktop\Microsoft Edge.lnk" 2>nul</CommandLine>
+          <CommandLine>cmd /c del /q &quot;%PUBLIC%\Desktop\Microsoft Edge.lnk&quot; 2&gt;nul</CommandLine>
           <Description>Delete Edge desktop shortcut</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>12</Order>
-          <CommandLine>reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection&quot; /v AllowTelemetry /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Disable telemetry</Description>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <Order>13</Order>
-          <CommandLine>reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo" /v Enabled /t REG_DWORD /d 0 /f</CommandLine>
+          <CommandLine>reg add &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo&quot; /v Enabled /t REG_DWORD /d 0 /f</CommandLine>
           <Description>Disable advertising ID</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>14</Order>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config&quot; /v AutoConnectAllowedOEM /t REG_DWORD /d 0 /f</CommandLine>
+          <Description>Disable Wi-Fi Sense</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>15</Order>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Windows\System&quot; /v EnableActivityFeed /t REG_DWORD /d 0 /f</CommandLine>
+          <Description>Disable activity history</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>16</Order>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Windows\System&quot; /v PublishUserActivities /t REG_DWORD /d 0 /f</CommandLine>
+          <Description>Disable publish user activities</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>17</Order>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors&quot; /v DisableLocation /t REG_DWORD /d 1 /f</CommandLine>
+          <Description>Disable location services</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>18</Order>
+          <CommandLine>reg add &quot;HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU&quot; /v NoAutoRebootWithLoggedOnUsers /t REG_DWORD /d 1 /f</CommandLine>
+          <Description>Prevent automatic restart after updates</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>19</Order>
+          <CommandLine>cmd /c del /q /f &quot;C:\Windows\Panther\unattend.xml&quot; 2&gt;nul</CommandLine>
+          <Description>Clean up Panther unattend.xml (remove stored password)</Description>
         </SynchronousCommand>
       </FirstLogonCommands>
     </component>

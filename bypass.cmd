@@ -1,6 +1,7 @@
 @echo off
 :: Bypass NRO Generator - Windows 11 OOBE Bypass Script
-:: Generated: 2026-01-27 16:29:57
+:: Version: 1.2.0
+:: Generated: 2026-06-27 10:38:41
 :: GitHub: https://github.com/YourUsername/bypassnro
 
 echo ============================================
@@ -26,7 +27,7 @@ if exist C:\Windows\Panther\unattend.xml (
     exit /b 1
 )
 
-:: Set BypassNRO registry key
+        :: Set BypassNRO registry key
 echo Setting BypassNRO registry key...
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f
 
@@ -47,6 +48,16 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search" /v AllowCortan
 :: Disable Consumer Features / Content Delivery Manager
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v DisableSoftLanding /t REG_DWORD /d 1 /f
+
+:: Disable Wi-Fi Sense
+reg add "HKLM\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config" /v AutoConnectAllowedOEM /t REG_DWORD /d 0 /f
+
+:: Disable Activity History
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v EnableActivityFeed /t REG_DWORD /d 0 /f
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v PublishUserActivities /t REG_DWORD /d 0 /f
+
+:: Disable Location Services
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" /v DisableLocation /t REG_DWORD /d 1 /f
 
 :: Reboot to apply changes
 echo.

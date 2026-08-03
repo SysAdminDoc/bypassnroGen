@@ -7,12 +7,21 @@ Author: Generated for Matt's SysAdminDoc projects
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import csv
+import hashlib
 import os
 import re
 import json
 import base64
+import subprocess
+import zipfile
 from datetime import datetime
+from io import StringIO
+from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as xml_escape
+
+APP_VERSION = "1.2.0"
+APP_NAME = "Bypass NRO Generator"
 
 class ModernScrollableFrame(ttk.Frame):
     """A scrollable frame with modern styling"""
@@ -45,9 +54,55 @@ class ModernScrollableFrame(ttk.Frame):
 
 
 class BypassNROGenerator:
+    REGION_PRESETS = {
+        "United States": ("en-US", "en-US", "0409:00000409", "Eastern Standard Time"),
+        "United Kingdom": ("en-GB", "en-GB", "0809:00000809", "GMT Standard Time"),
+        "Germany": ("de-DE", "de-DE", "0407:00000407", "W. Europe Standard Time"),
+        "France": ("fr-FR", "fr-FR", "040c:0000040c", "Romance Standard Time"),
+        "Spain": ("es-ES", "es-ES", "0c0a:0000040a", "Romance Standard Time"),
+        "Italy": ("it-IT", "it-IT", "0410:00000410", "W. Europe Standard Time"),
+        "Netherlands": ("nl-NL", "nl-NL", "0413:00000413", "W. Europe Standard Time"),
+        "Poland": ("pl-PL", "pl-PL", "0415:00000415", "Central European Standard Time"),
+        "Japan": ("ja-JP", "ja-JP", "0411:00000411", "Tokyo Standard Time"),
+        "Australia": ("en-AU", "en-AU", "0c09:00000409", "AUS Eastern Standard Time"),
+    }
+
+    BLOATWARE_CATALOG = {
+        'Microsoft.549981C3F5F10': ('Cortana', 'safe', 'Safe to remove. Cortana is deprecated in Windows 11.'),
+        'Microsoft.BingNews': ('News', 'safe', 'Safe to remove. Bing News feed widget.'),
+        'Microsoft.BingWeather': ('Weather', 'safe', 'Safe to remove. Taskbar weather widget data source.'),
+        'Microsoft.GetHelp': ('Get Help', 'safe', 'Safe to remove. Online help client; does not affect OS stability.'),
+        'Microsoft.Getstarted': ('Tips', 'safe', 'Safe to remove. Shows Windows tips and suggestions.'),
+        'Microsoft.MicrosoftOfficeHub': ('Office Hub', 'safe', 'Safe to remove. Office promotion hub; does not affect installed Office.'),
+        'Microsoft.MicrosoftSolitaireCollection': ('Solitaire', 'safe', 'Safe to remove. Card games with ads.'),
+        'Microsoft.MicrosoftStickyNotes': ('Sticky Notes', 'aggressive', 'Caution: some users rely on Sticky Notes for quick notes.'),
+        'Microsoft.OutlookForWindows': ('Outlook', 'safe', 'Safe to remove. New Outlook client; does not affect classic Outlook.'),
+        'Microsoft.People': ('People', 'safe', 'Safe to remove. Contact manager; Mail app may show reduced functionality.'),
+        'Microsoft.PowerAutomateDesktop': ('Power Automate', 'safe', 'Safe to remove. RPA tool for enterprise automation.'),
+        'Microsoft.Todos': ('To Do', 'safe', 'Safe to remove. Task management app.'),
+        'Microsoft.WindowsAlarms': ('Alarms and Clock', 'aggressive', 'Caution: removes alarms, timer, and world clock functionality.'),
+        'Microsoft.WindowsCamera': ('Camera', 'aggressive', 'Caution: removes the default camera app. Webcams still work in other apps.'),
+        'Microsoft.WindowsFeedbackHub': ('Feedback Hub', 'safe', 'Safe to remove. Used to send feedback to Microsoft.'),
+        'Microsoft.WindowsMaps': ('Maps', 'safe', 'Safe to remove. Offline maps app.'),
+        'Microsoft.WindowsSoundRecorder': ('Voice Recorder', 'aggressive', 'Caution: removes the built-in audio recorder.'),
+        'Microsoft.Xbox.TCUI': ('Xbox TCUI', 'safe', 'Safe to remove unless using Xbox services. Part of Xbox infrastructure.'),
+        'Microsoft.XboxGameOverlay': ('Xbox Game Overlay', 'safe', 'Safe to remove unless using Xbox Game Bar.'),
+        'Microsoft.XboxGamingOverlay': ('Xbox Gaming Overlay', 'safe', 'Safe to remove unless using Xbox Game Bar features.'),
+        'Microsoft.XboxIdentityProvider': ('Xbox Identity', 'aggressive', 'Warning: removing breaks Xbox sign-in and Microsoft Store game purchases.'),
+        'Microsoft.XboxSpeechToTextOverlay': ('Xbox Speech', 'safe', 'Safe to remove. Xbox voice chat transcription.'),
+        'Microsoft.YourPhone': ('Phone Link', 'safe', 'Safe to remove. Links Android/iPhone to Windows.'),
+        'Microsoft.ZuneMusic': ('Media Player', 'aggressive', 'Caution: removes the default music player.'),
+        'Microsoft.ZuneVideo': ('Movies and TV', 'aggressive', 'Caution: removes the default video player.'),
+        'Clipchamp.Clipchamp': ('Clipchamp', 'safe', 'Safe to remove. Basic video editor.'),
+        'MicrosoftTeams': ('Teams', 'safe', 'Safe to remove. Teams chat integration in taskbar.'),
+        'Microsoft.SkypeApp': ('Skype', 'safe', 'Safe to remove. Legacy Skype client.'),
+    }
+
+    BLOATWARE_REMOVAL_MODES = ("Provisioned + per-user", "Provisioned only", "Per-user only")
+
     def __init__(self, root):
         self.root = root
-        self.root.title("Bypass NRO Generator - Windows 11 OOBE Bypass Tool")
+        self.root.title(f"{APP_NAME} v{APP_VERSION} - Windows 11 OOBE Bypass Tool")
         self.root.geometry("1200x800")
         self.root.minsize(1000, 700)
         
@@ -172,6 +227,7 @@ class BypassNROGenerator:
         self.github_branch = tk.StringVar(value="main")
         
         # Language settings
+        self.region_preset = tk.StringVar(value="United States")
         self.ui_language = tk.StringVar(value="en-US")
         self.locale = tk.StringVar(value="en-US")
         self.keyboard = tk.StringVar(value="0409:00000409")
@@ -199,6 +255,10 @@ class BypassNROGenerator:
         self.skip_user_oobe = tk.BooleanVar(value=True)
         self.hide_online_account = tk.BooleanVar(value=True)
         self.hide_local_account = tk.BooleanVar(value=True)
+        self.msa_localonly_bypass = tk.BooleanVar(value=False)
+        self.audit_mode = tk.BooleanVar(value=False)
+        self.target_architecture = tk.StringVar(value="amd64")
+        self.enable_disk_partitioning = tk.BooleanVar(value=False)
         self.protect_your_pc = tk.StringVar(value="3")  # 3 = skip privacy settings
         
         # Privacy settings
@@ -288,13 +348,28 @@ class BypassNROGenerator:
             'MicrosoftTeams': tk.BooleanVar(value=True),
             'Microsoft.SkypeApp': tk.BooleanVar(value=True),
         }
+        self.bloatware_app_modes = {
+            app_id: tk.StringVar(value="Provisioned + per-user")
+            for app_id in self.bloatware_apps
+        }
         
         # Output format
         self.output_autounattend = tk.BooleanVar(value=False)
+        self.output_powershell_bootstrap = tk.BooleanVar(value=False)
+        self.output_iso_helper = tk.BooleanVar(value=False)
+        self.output_usb_helper = tk.BooleanVar(value=False)
+        self.output_startnet = tk.BooleanVar(value=False)
+        self.output_registry_reference = tk.BooleanVar(value=False)
+        self.output_validation_report = tk.BooleanVar(value=True)
+        self.output_zip_bundle = tk.BooleanVar(value=False)
+        self.sign_powershell_bootstrap = tk.BooleanVar(value=False)
+        self.signing_cert_thumbprint = tk.StringVar(value="")
 
         # Custom scripts
         self.system_script = tk.StringVar(value="")
         self.firstlogon_script = tk.StringVar(value="")
+        self.completion_webhook_url = tk.StringVar(value="")
+        self.completion_webhook_type = tk.StringVar(value="Generic JSON")
         
     def create_interface(self):
         """Create the main interface"""
@@ -306,7 +381,7 @@ class BypassNROGenerator:
         header_frame = ttk.Frame(main_frame, style='TFrame')
         header_frame.pack(fill='x', pady=(0, 20))
         
-        ttk.Label(header_frame, text="Bypass NRO Generator", style='Title.TLabel').pack(side='left')
+        ttk.Label(header_frame, text=f"{APP_NAME} v{APP_VERSION}", style='Title.TLabel').pack(side='left')
         ttk.Label(header_frame, text="Windows 11 OOBE Bypass Tool", style='Dim.TLabel').pack(side='left', padx=(15, 0), pady=(10, 0))
         
         # Action buttons at top
@@ -316,6 +391,7 @@ class BypassNROGenerator:
         ttk.Button(btn_frame, text="Export Files", style='Accent.TButton', command=self.export_files).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Preview", style='TButton', command=self.preview_files).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Load Preset", style='TButton', command=self.load_preset).pack(side='right', padx=5)
+        ttk.Button(btn_frame, text="Diff Profile", style='TButton', command=self.diff_profile).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Save Profile", style='TButton', command=self.save_profile).pack(side='right', padx=5)
         ttk.Button(btn_frame, text="Load Profile", style='TButton', command=self.load_profile).pack(side='right', padx=5)
         
@@ -395,7 +471,22 @@ class BypassNROGenerator:
         output_group.pack(fill='x', padx=10, pady=10)
 
         ttk.Checkbutton(output_group, text="Also export autounattend.xml (for USB root -- bypasses OOBE before setup starts)", variable=self.output_autounattend).pack(anchor='w', pady=2)
-        ttk.Label(output_group, text="Place autounattend.xml in the root of your USB installer for automatic unattended setup.", style='Dim.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Checkbutton(output_group, text="Export PowerShell bootstrap for optional Authenticode signing", variable=self.output_powershell_bootstrap).pack(anchor='w', pady=2)
+        ttk.Checkbutton(output_group, text="Export ISO injection helper script", variable=self.output_iso_helper).pack(anchor='w', pady=2)
+        ttk.Checkbutton(output_group, text="Export USB staging helper script", variable=self.output_usb_helper).pack(anchor='w', pady=2)
+        ttk.Checkbutton(output_group, text="Export WinPE startnet.cmd", variable=self.output_startnet).pack(anchor='w', pady=2)
+        ttk.Checkbutton(output_group, text="Export offline registry reference HTML", variable=self.output_registry_reference).pack(anchor='w', pady=2)
+        ttk.Checkbutton(output_group, text="Export validation report", variable=self.output_validation_report).pack(anchor='w', pady=2)
+        ttk.Checkbutton(output_group, text="Export checksum ZIP bundle", variable=self.output_zip_bundle).pack(anchor='w', pady=2)
+
+        signing_group = ttk.LabelFrame(frame, text="PowerShell Signing", padding=15)
+        signing_group.pack(fill='x', padx=10, pady=10)
+
+        ttk.Checkbutton(signing_group, text="Sign PowerShell bootstrap with certificate thumbprint", variable=self.sign_powershell_bootstrap).pack(anchor='w', pady=2)
+        row = ttk.Frame(signing_group, style='TFrame')
+        row.pack(fill='x', pady=5)
+        ttk.Label(row, text="Certificate Thumbprint:", width=22).pack(side='left')
+        ttk.Entry(row, textvariable=self.signing_cert_thumbprint, width=48).pack(side='left', padx=10)
 
         # Instructions
         info_group = ttk.LabelFrame(frame, text="How to Use", padding=15)
@@ -424,10 +515,17 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         # Language settings
         group = ttk.LabelFrame(frame, text="Language Settings", padding=15)
         group.pack(fill='x', padx=10, pady=10)
+
+        preset_row = ttk.Frame(group, style='TFrame')
+        preset_row.pack(fill='x', pady=5)
+        ttk.Label(preset_row, text="Region Preset:", width=20).pack(side='left')
+        ttk.Combobox(preset_row, textvariable=self.region_preset, values=list(self.REGION_PRESETS.keys()), width=37, state='readonly').pack(side='left', padx=10)
+        ttk.Button(preset_row, text="Apply", command=self.apply_region_preset).pack(side='left', padx=5)
         
         languages = [
             ("English (US)", "en-US"),
             ("English (UK)", "en-GB"),
+            ("English (Australia)", "en-AU"),
             ("German", "de-DE"),
             ("French", "fr-FR"),
             ("Spanish", "es-ES"),
@@ -456,10 +554,14 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         keyboards = [
             ("US English", "0409:00000409"),
             ("UK English", "0809:00000809"),
+            ("Australian English", "0c09:00000409"),
             ("German", "0407:00000407"),
             ("French", "040c:0000040c"),
             ("Spanish", "0c0a:0000040a"),
             ("Italian", "0410:00000410"),
+            ("Dutch", "0413:00000413"),
+            ("Polish", "0415:00000415"),
+            ("Japanese", "0411:00000411"),
             ("US International", "0409:00020409"),
         ]
         
@@ -476,6 +578,7 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
             "Pacific Standard Time",
             "UTC",
             "GMT Standard Time",
+            "Romance Standard Time",
             "W. Europe Standard Time",
             "Central European Standard Time",
             "Tokyo Standard Time",
@@ -547,6 +650,14 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         
         ttk.Checkbutton(options_group, text="Auto-logon to this account after setup", variable=self.auto_logon).pack(anchor='w', pady=2)
         ttk.Checkbutton(options_group, text="Obscure passwords with Base64 encoding", variable=self.obscure_passwords).pack(anchor='w', pady=2)
+
+        extra_group = ttk.LabelFrame(frame, text="Additional Local Accounts", padding=15)
+        extra_group.pack(fill='x', padx=10, pady=10)
+
+        ttk.Label(extra_group, text="CSV rows: name,display name,group,password. Up to 98 additional accounts.", style='Dim.TLabel').pack(anchor='w', pady=(0, 10))
+        self.additional_accounts_text = tk.Text(extra_group, height=7, bg='#2d2d2d', fg='#ffffff', insertbackground='#ffffff', font=('Consolas', 10))
+        self.additional_accounts_text.pack(fill='x', pady=5)
+        self.additional_accounts_text.insert('1.0', '# Technician,Technician,Administrators,\n# StandardUser,Standard User,Users,')
         
     def create_oobe_tab(self):
         """OOBE bypass settings"""
@@ -570,6 +681,7 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         ttk.Checkbutton(group, text="Skip User OOBE (user setup screens)", variable=self.skip_user_oobe).pack(anchor='w', pady=2)
         ttk.Checkbutton(group, text="Hide Online Account creation screen", variable=self.hide_online_account).pack(anchor='w', pady=2)
         ttk.Checkbutton(group, text="Hide Local Account creation screen (use predefined account)", variable=self.hide_local_account).pack(anchor='w', pady=2)
+        ttk.Checkbutton(group, text="Launch local-only Microsoft account bypass URI from bypass.cmd", variable=self.msa_localonly_bypass).pack(anchor='w', pady=2)
         
         # Privacy during OOBE
         privacy_group = ttk.LabelFrame(frame, text="Privacy Settings (During OOBE)", padding=15)
@@ -603,6 +715,17 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         ttk.Label(row, text="Product Key:", width=20).pack(side='left')
         ttk.Entry(row, textvariable=self.product_key, width=40).pack(side='left', padx=10)
         ttk.Label(row, text="(optional)", style='Dim.TLabel').pack(side='left')
+
+        advanced_group = ttk.LabelFrame(frame, text="Advanced Setup", padding=15)
+        advanced_group.pack(fill='x', padx=10, pady=10)
+
+        row = ttk.Frame(advanced_group, style='TFrame')
+        row.pack(fill='x', pady=5)
+        ttk.Label(row, text="Target Architecture:", width=20).pack(side='left')
+        ttk.Combobox(row, textvariable=self.target_architecture, values=["amd64", "arm64"], width=12, state='readonly').pack(side='left', padx=10)
+
+        ttk.Checkbutton(advanced_group, text="Boot into Audit Mode for reference image work", variable=self.audit_mode).pack(anchor='w', pady=2)
+        ttk.Checkbutton(advanced_group, text="Add Disk 0 UEFI/GPT clean-install partition layout", variable=self.enable_disk_partitioning).pack(anchor='w', pady=2)
         
     def create_privacy_tab(self):
         """Privacy and telemetry settings"""
@@ -722,6 +845,8 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         
         btn_frame = ttk.Frame(header, style='TFrame')
         btn_frame.pack(side='right')
+        ttk.Button(btn_frame, text="Safe List", command=lambda: self.set_bloatware_level("safe")).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Aggressive List", command=lambda: self.set_bloatware_level("aggressive")).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="Select All", command=lambda: self.set_all_bloatware(True)).pack(side='left', padx=5)
         ttk.Button(btn_frame, text="Deselect All", command=lambda: self.set_all_bloatware(False)).pack(side='left', padx=5)
         
@@ -729,38 +854,6 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         group = ttk.LabelFrame(frame, text="Windows Apps", padding=15)
         group.pack(fill='x', padx=10, pady=10)
         
-        # App metadata: (display_name, tooltip_justification)
-        app_info = {
-            'Microsoft.549981C3F5F10': ('Cortana', 'Safe to remove. Cortana is deprecated in Win11.'),
-            'Microsoft.BingNews': ('News', 'Safe to remove. Bing News feed widget.'),
-            'Microsoft.BingWeather': ('Weather', 'Safe to remove. Taskbar weather widget data source.'),
-            'Microsoft.GetHelp': ('Get Help', 'Safe to remove. Online help client; does not affect OS stability.'),
-            'Microsoft.Getstarted': ('Tips', 'Safe to remove. Shows Windows tips and suggestions.'),
-            'Microsoft.MicrosoftOfficeHub': ('Office Hub', 'Safe to remove. Office promotion hub; does not affect installed Office.'),
-            'Microsoft.MicrosoftSolitaireCollection': ('Solitaire', 'Safe to remove. Card games with ads.'),
-            'Microsoft.MicrosoftStickyNotes': ('Sticky Notes', 'Caution: some users rely on Sticky Notes for quick notes.'),
-            'Microsoft.OutlookForWindows': ('Outlook', 'Safe to remove. New Outlook client; does not affect classic Outlook.'),
-            'Microsoft.People': ('People', 'Safe to remove. Contact manager; Mail app may show reduced functionality.'),
-            'Microsoft.PowerAutomateDesktop': ('Power Automate', 'Safe to remove. RPA tool for enterprise automation.'),
-            'Microsoft.Todos': ('To Do', 'Safe to remove. Task management app.'),
-            'Microsoft.WindowsAlarms': ('Alarms & Clock', 'Caution: removes alarms, timer, and world clock functionality.'),
-            'Microsoft.WindowsCamera': ('Camera', 'Caution: removes the default camera app. Webcams still work in other apps.'),
-            'Microsoft.WindowsFeedbackHub': ('Feedback Hub', 'Safe to remove. Used to send feedback to Microsoft.'),
-            'Microsoft.WindowsMaps': ('Maps', 'Safe to remove. Offline maps app.'),
-            'Microsoft.WindowsSoundRecorder': ('Voice Recorder', 'Caution: removes the built-in audio recorder.'),
-            'Microsoft.Xbox.TCUI': ('Xbox TCUI', 'Safe to remove unless using Xbox services. Part of Xbox infrastructure.'),
-            'Microsoft.XboxGameOverlay': ('Xbox Game Overlay', 'Safe to remove unless using Xbox Game Bar (Win+G).'),
-            'Microsoft.XboxGamingOverlay': ('Xbox Gaming Overlay', 'Safe to remove unless using Xbox Game Bar features.'),
-            'Microsoft.XboxIdentityProvider': ('Xbox Identity', 'Warning: removing breaks Xbox sign-in and MS Store game purchases.'),
-            'Microsoft.XboxSpeechToTextOverlay': ('Xbox Speech', 'Safe to remove. Xbox voice chat transcription.'),
-            'Microsoft.YourPhone': ('Phone Link', 'Safe to remove. Links Android/iPhone to Windows.'),
-            'Microsoft.ZuneMusic': ('Media Player', 'Caution: removes the default music player (Groove/Media Player).'),
-            'Microsoft.ZuneVideo': ('Movies & TV', 'Caution: removes the default video player. Use VLC as alternative.'),
-            'Clipchamp.Clipchamp': ('Clipchamp', 'Safe to remove. Basic video editor.'),
-            'MicrosoftTeams': ('Teams', 'Safe to remove. Teams chat integration in taskbar.'),
-            'Microsoft.SkypeApp': ('Skype', 'Safe to remove. Legacy Skype client.'),
-        }
-
         # Create 3-column layout
         apps_list = list(self.bloatware_apps.items())
         cols = 3
@@ -776,10 +869,12 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
             col_idx = idx // rows_per_col
             if col_idx >= cols:
                 col_idx = cols - 1
-            info = app_info.get(app_id, (app_id.split('.')[-1], ''))
-            display_name, tooltip_text = info
-            cb = ttk.Checkbutton(col_frames[col_idx], text=display_name, variable=var)
-            cb.pack(anchor='w', pady=1)
+            display_name, risk, tooltip_text = self.BLOATWARE_CATALOG.get(app_id, (app_id.split('.')[-1], 'aggressive', ''))
+            row = ttk.Frame(col_frames[col_idx], style='TFrame')
+            row.pack(fill='x', pady=1)
+            cb = ttk.Checkbutton(row, text=f"{display_name} ({risk})", variable=var)
+            cb.pack(side='left', anchor='w')
+            ttk.Combobox(row, textvariable=self.bloatware_app_modes[app_id], values=self.BLOATWARE_REMOVAL_MODES, width=19, state='readonly').pack(side='right', padx=(5, 0))
             if tooltip_text:
                 self._create_tooltip(cb, tooltip_text)
             
@@ -787,6 +882,175 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         """Set all bloatware checkboxes"""
         for var in self.bloatware_apps.values():
             var.set(value)
+
+    def set_bloatware_level(self, level):
+        """Select bloatware entries by risk level."""
+        self.set_all_bloatware(False)
+        for app_id, var in self.bloatware_apps.items():
+            if self.BLOATWARE_CATALOG.get(app_id, ("", "", ""))[1] == level:
+                var.set(True)
+
+    def apply_region_preset(self):
+        """Apply a bundled language/locale/keyboard/timezone preset."""
+        preset = self.REGION_PRESETS.get(self.region_preset.get())
+        if not preset:
+            return
+        ui_language, locale, keyboard, timezone = preset
+        self.ui_language.set(ui_language)
+        self.locale.set(locale)
+        self.keyboard.set(keyboard)
+        self.timezone.set(timezone)
+
+    @staticmethod
+    def _ps_single_quote(value):
+        """Quote a value for a PowerShell single-quoted string."""
+        return str(value).replace("'", "''")
+
+    def _component_open(self, name, include_wcm=False):
+        attrs = (
+            f'name="{name}" processorArchitecture="{self.target_architecture.get()}" '
+            'publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"'
+        )
+        if include_wcm:
+            attrs += ' xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"'
+        return f'    <component {attrs}>\n'
+
+    def _format_password(self, password):
+        if password and self.obscure_passwords.get():
+            encoded = base64.b64encode((password + "Password").encode('utf-16-le')).decode()
+            return encoded, "false"
+        return password, "true"
+
+    def _get_text_widget_value(self, attr_name):
+        widget = getattr(self, attr_name, None)
+        if widget is None:
+            return ""
+        try:
+            return widget.get('1.0', 'end').rstrip('\n')
+        except Exception:
+            return ""
+
+    def _get_additional_accounts(self):
+        raw = self._get_text_widget_value('additional_accounts_text')
+        accounts = []
+        if not raw.strip():
+            return accounts
+
+        reader = csv.reader(StringIO(raw))
+        for row in reader:
+            if not row:
+                continue
+            first = row[0].strip()
+            if not first or first.startswith('#'):
+                continue
+            if len(accounts) >= 98:
+                break
+            name = first
+            display_name = row[1].strip() if len(row) > 1 and row[1].strip() else name
+            group = row[2].strip() if len(row) > 2 and row[2].strip() else "Users"
+            password = row[3] if len(row) > 3 else ""
+            accounts.append({
+                "name": name,
+                "display_name": display_name,
+                "group": group,
+                "password": password,
+            })
+        return accounts
+
+    @staticmethod
+    def _validate_computer_name(name):
+        if not name or name == "*":
+            return True, ""
+        if len(name) > 15:
+            return False, "Computer name must be 15 characters or fewer."
+        if name.isdigit():
+            return False, "Computer name cannot contain only numbers."
+        invalid_chars = set(r'"\[]:;|=,+*?<>/\\')
+        found = [c for c in name if c in invalid_chars]
+        if found:
+            return False, f"Computer name contains invalid characters: {''.join(sorted(set(found)))}"
+        return True, ""
+
+    def validate_configuration(self):
+        """Return a list of user-correctable configuration errors."""
+        errors = []
+        account_name = self.account_name.get() or "Admin"
+        valid, err = self._validate_account_name(account_name)
+        if not valid:
+            errors.append(f"Primary account invalid: {err}")
+
+        valid, err = self._validate_computer_name(self.computer_name.get() or "*")
+        if not valid:
+            errors.append(err)
+
+        seen = {account_name.lower()}
+        for account in self._get_additional_accounts():
+            valid, err = self._validate_account_name(account["name"])
+            if not valid:
+                errors.append(f"Additional account '{account['name']}' invalid: {err}")
+            key = account["name"].lower()
+            if key in seen:
+                errors.append(f"Duplicate account name: {account['name']}")
+            seen.add(key)
+            if account["group"] not in ("Administrators", "Users"):
+                errors.append(f"Additional account '{account['name']}' group must be Administrators or Users.")
+
+        if self.target_architecture.get() not in ("amd64", "arm64"):
+            errors.append("Target architecture must be amd64 or arm64.")
+
+        return errors
+
+    def _selected_bloatware_by_mode(self):
+        grouped = {mode: [] for mode in self.BLOATWARE_REMOVAL_MODES}
+        for app_id, var in self.bloatware_apps.items():
+            if not var.get():
+                continue
+            mode = self.bloatware_app_modes[app_id].get()
+            if mode not in grouped:
+                mode = "Provisioned + per-user"
+            grouped[mode].append(app_id)
+        return {mode: apps for mode, apps in grouped.items() if apps}
+
+    def _build_bloatware_command(self, apps, mode):
+        apps_str = "', '".join(self._ps_single_quote(app) for app in apps)
+        remove_per_user = mode in ("Provisioned + per-user", "Per-user only")
+        remove_provisioned = mode in ("Provisioned + per-user", "Provisioned only")
+        commands = [
+            f"$apps = @('{apps_str}')",
+            "foreach ($app in $apps) {",
+        ]
+        if remove_per_user:
+            commands.append("  Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue")
+        if remove_provisioned:
+            commands.append("  Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -eq $app -or $_.PackageName -like \"*$app*\" } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue")
+        commands.append("}")
+        return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{}"'.format("; ".join(commands).replace('"', '\\"'))
+
+    def _build_webhook_command(self):
+        url = self.completion_webhook_url.get().strip()
+        if not url:
+            return ""
+        payload_type = self.completion_webhook_type.get()
+        quoted_url = self._ps_single_quote(url)
+        if payload_type == "Discord":
+            body = "@{content=('Windows setup complete on ' + $env:COMPUTERNAME)} | ConvertTo-Json -Compress"
+        elif payload_type == "Slack":
+            body = "@{text=('Windows setup complete on ' + $env:COMPUTERNAME)} | ConvertTo-Json -Compress"
+        else:
+            body = "@{status='complete'; hostname=$env:COMPUTERNAME; generatedBy='bypassnroGen'} | ConvertTo-Json -Compress"
+        ps = f"$body = {body}; Invoke-RestMethod -Uri '{quoted_url}' -Method Post -ContentType 'application/json' -Body $body"
+        return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{}"'.format(ps.replace('"', '\\"'))
+
+    def validate_generated_xml(self):
+        """Validate generated XML for well-formedness and local compatibility checks."""
+        errors = []
+        try:
+            ET.fromstring(self.generate_unattend_xml())
+        except ET.ParseError as exc:
+            errors.append(f"unattend.xml is not well-formed XML: {exc}")
+        if self.target_architecture.get() not in ("amd64", "arm64"):
+            errors.append("Unsupported target architecture.")
+        return errors
             
     def create_scripts_tab(self):
         """Custom scripts tab"""
@@ -816,6 +1080,19 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         self.firstlogon_script_text = tk.Text(group2, height=8, bg='#2d2d2d', fg='#ffffff', insertbackground='#ffffff', font=('Consolas', 10))
         self.firstlogon_script_text.pack(fill='x', pady=5)
         self.firstlogon_script_text.insert('1.0', ':: Add your custom commands here\n:: Example: setx DIRCMD "/A /O:GN /C /N"')
+
+        webhook_group = ttk.LabelFrame(frame, text="Deployment Completion Webhook", padding=15)
+        webhook_group.pack(fill='x', padx=10, pady=10)
+
+        row = ttk.Frame(webhook_group, style='TFrame')
+        row.pack(fill='x', pady=5)
+        ttk.Label(row, text="Webhook URL:", width=20).pack(side='left')
+        ttk.Entry(row, textvariable=self.completion_webhook_url, width=70).pack(side='left', padx=10)
+
+        row = ttk.Frame(webhook_group, style='TFrame')
+        row.pack(fill='x', pady=5)
+        ttk.Label(row, text="Payload Type:", width=20).pack(side='left')
+        ttk.Combobox(row, textvariable=self.completion_webhook_type, values=["Generic JSON", "Discord", "Slack"], width=20, state='readonly').pack(side='left', padx=10)
         
     def create_preview_tab(self):
         """Preview generated files"""
@@ -854,6 +1131,7 @@ curl -L https://raw.githubusercontent.com/[user]/[repo]/refs/heads/main/bypass.c
         
         cmd = '''@echo off
 :: Bypass NRO Generator - Windows 11 OOBE Bypass Script
+:: Version: {version}
 :: Generated: {date}
 :: GitHub: https://github.com/{user}/{repo}
 
@@ -880,7 +1158,8 @@ if exist C:\\Windows\\Panther\\unattend.xml (
     exit /b 1
 )
 
-'''.format(
+        '''.format(
+            version=APP_VERSION,
             date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             user=user,
             repo=repo,
@@ -892,6 +1171,13 @@ if exist C:\\Windows\\Panther\\unattend.xml (
             cmd += ''':: Set BypassNRO registry key
 echo Setting BypassNRO registry key...
 reg add "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f
+
+'''
+
+        if self.msa_localonly_bypass.get():
+            cmd += ''':: Launch local-only account flow URI
+echo Launching local-only account flow...
+start "" "ms-cxh://setaddlocalonly"
 
 '''
         
@@ -964,17 +1250,12 @@ shutdown /r /t 0
         display_name = self.account_display.get() or account_name
         password = self.account_password.get()
         computer_name = self.computer_name.get() or "*"
+        additional_accounts = self._get_additional_accounts()
 
-        # Encode password if needed
-        if password and self.obscure_passwords.get():
-            password_encoded = base64.b64encode((password + "Password").encode('utf-16-le')).decode()
-            password_plain = "false"
-        else:
-            password_encoded = password
-            password_plain = "true"
+        password_encoded, password_plain = self._format_password(password)
 
-        # Build bloatware removal list
-        apps_to_remove = [app_id for app_id, var in self.bloatware_apps.items() if var.get()]
+        # Build bloatware removal list grouped by removal method
+        apps_by_mode = self._selected_bloatware_by_mode()
 
         # Collect custom scripts from text widgets (not the unused StringVars)
         system_script_lines = []
@@ -999,27 +1280,52 @@ shutdown /r /t 0
         xml = '<?xml version="1.0" encoding="utf-8"?>\n'
         xml += '<!--\n'
         xml += '  Bypass NRO Generator - Windows 11 Unattended Installation\n'
+        xml += '  Version: {}\n'.format(APP_VERSION)
         xml += '  Generated: {}\n'.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         xml += '-->\n'
         xml += '<unattend xmlns="urn:schemas-microsoft-com:unattend">\n'
 
-        # Windows PE pass - for system requirements bypass
-        if self.bypass_requirements.get():
+        # Windows PE pass - for system requirements bypass and disk layout
+        if self.bypass_requirements.get() or self.enable_disk_partitioning.get():
             xml += '  <settings pass="windowsPE">\n'
-            xml += '    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">\n'
-            xml += '      <RunSynchronous>\n'
-            for i, check in enumerate(["BypassTPMCheck", "BypassRAMCheck", "BypassSecureBootCheck", "BypassStorageCheck", "BypassCPUCheck"], 1):
-                xml += '        <RunSynchronousCommand wcm:action="add">\n'
-                xml += '          <Order>{}</Order>\n'.format(i)
-                xml += '          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v {} /t REG_DWORD /d 1 /f</Path>\n'.format(check)
-                xml += '        </RunSynchronousCommand>\n'
-            xml += '      </RunSynchronous>\n'
+            xml += self._component_open("Microsoft-Windows-Setup", include_wcm=True)
+            if self.enable_disk_partitioning.get():
+                xml += '      <DiskConfiguration>\n'
+                xml += '        <Disk wcm:action="add">\n'
+                xml += '          <DiskID>0</DiskID>\n'
+                xml += '          <WillWipeDisk>true</WillWipeDisk>\n'
+                xml += '          <CreatePartitions>\n'
+                xml += '            <CreatePartition wcm:action="add"><Order>1</Order><Type>EFI</Type><Size>100</Size></CreatePartition>\n'
+                xml += '            <CreatePartition wcm:action="add"><Order>2</Order><Type>MSR</Type><Size>16</Size></CreatePartition>\n'
+                xml += '            <CreatePartition wcm:action="add"><Order>3</Order><Type>Primary</Type><Extend>true</Extend></CreatePartition>\n'
+                xml += '          </CreatePartitions>\n'
+                xml += '          <ModifyPartitions>\n'
+                xml += '            <ModifyPartition wcm:action="add"><Order>1</Order><PartitionID>1</PartitionID><Format>FAT32</Format><Label>System</Label></ModifyPartition>\n'
+                xml += '            <ModifyPartition wcm:action="add"><Order>2</Order><PartitionID>3</PartitionID><Format>NTFS</Format><Label>Windows</Label><Letter>C</Letter></ModifyPartition>\n'
+                xml += '          </ModifyPartitions>\n'
+                xml += '        </Disk>\n'
+                xml += '        <WillShowUI>OnError</WillShowUI>\n'
+                xml += '      </DiskConfiguration>\n'
+                xml += '      <ImageInstall>\n'
+                xml += '        <OSImage>\n'
+                xml += '          <InstallTo><DiskID>0</DiskID><PartitionID>3</PartitionID></InstallTo>\n'
+                xml += '          <WillShowUI>OnError</WillShowUI>\n'
+                xml += '        </OSImage>\n'
+                xml += '      </ImageInstall>\n'
+            if self.bypass_requirements.get():
+                xml += '      <RunSynchronous>\n'
+                for i, check in enumerate(["BypassTPMCheck", "BypassRAMCheck", "BypassSecureBootCheck", "BypassStorageCheck", "BypassCPUCheck"], 1):
+                    xml += '        <RunSynchronousCommand wcm:action="add">\n'
+                    xml += '          <Order>{}</Order>\n'.format(i)
+                    xml += '          <Path>reg add "HKLM\\SYSTEM\\Setup\\LabConfig" /v {} /t REG_DWORD /d 1 /f</Path>\n'.format(check)
+                    xml += '        </RunSynchronousCommand>\n'
+                xml += '      </RunSynchronous>\n'
             xml += '    </component>\n'
             xml += '  </settings>\n\n'
 
         # Specialize pass
         xml += '  <settings pass="specialize">\n'
-        xml += '    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">\n'
+        xml += self._component_open("Microsoft-Windows-Deployment", include_wcm=True)
         xml += '      <RunSynchronous>\n'
 
         order = 1
@@ -1079,7 +1385,7 @@ shutdown /r /t 0
 
         xml += '      </RunSynchronous>\n'
         xml += '    </component>\n'
-        xml += '    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">\n'
+        xml += self._component_open("Microsoft-Windows-Shell-Setup")
         xml += '      <ComputerName>{}</ComputerName>\n'.format(esc(computer_name))
         xml += '      <TimeZone>{}</TimeZone>\n'.format(esc(self.timezone.get()))
         xml += '    </component>\n'
@@ -1087,13 +1393,13 @@ shutdown /r /t 0
 
         # OOBE System pass
         xml += '  <settings pass="oobeSystem">\n'
-        xml += '    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">\n'
+        xml += self._component_open("Microsoft-Windows-International-Core")
         xml += '      <InputLocale>{}</InputLocale>\n'.format(esc(self.keyboard.get()))
         xml += '      <SystemLocale>{}</SystemLocale>\n'.format(esc(self.locale.get()))
         xml += '      <UILanguage>{}</UILanguage>\n'.format(esc(self.ui_language.get()))
         xml += '      <UserLocale>{}</UserLocale>\n'.format(esc(self.locale.get()))
         xml += '    </component>\n'
-        xml += '    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">\n'
+        xml += self._component_open("Microsoft-Windows-Shell-Setup", include_wcm=True)
         xml += '      <OOBE>\n'
         xml += '        <HideEULAPage>{}</HideEULAPage>\n'.format("true" if self.skip_eula.get() else "false")
         xml += '        <HideOnlineAccountScreens>{}</HideOnlineAccountScreens>\n'.format("true" if self.hide_online_account.get() else "false")
@@ -1103,15 +1409,23 @@ shutdown /r /t 0
         xml += '      </OOBE>\n'
         xml += '      <UserAccounts>\n'
         xml += '        <LocalAccounts>\n'
-        xml += '          <LocalAccount wcm:action="add">\n'
-        xml += '            <Name>{}</Name>\n'.format(esc(account_name))
-        xml += '            <DisplayName>{}</DisplayName>\n'.format(esc(display_name))
-        xml += '            <Group>{}</Group>\n'.format(esc(self.account_group.get()))
-        xml += '            <Password>\n'
-        xml += '              <Value>{}</Value>\n'.format(esc(password_encoded) if password else "")
-        xml += '              <PlainText>{}</PlainText>\n'.format(password_plain)
-        xml += '            </Password>\n'
-        xml += '          </LocalAccount>\n'
+        local_accounts = [{
+            "name": account_name,
+            "display_name": display_name,
+            "group": self.account_group.get(),
+            "password": password,
+        }] + additional_accounts
+        for account in local_accounts:
+            account_password_encoded, account_password_plain = self._format_password(account["password"])
+            xml += '          <LocalAccount wcm:action="add">\n'
+            xml += '            <Name>{}</Name>\n'.format(esc(account["name"]))
+            xml += '            <DisplayName>{}</DisplayName>\n'.format(esc(account["display_name"]))
+            xml += '            <Group>{}</Group>\n'.format(esc(account["group"]))
+            xml += '            <Password>\n'
+            xml += '              <Value>{}</Value>\n'.format(esc(account_password_encoded) if account["password"] else "")
+            xml += '              <PlainText>{}</PlainText>\n'.format(account_password_plain)
+            xml += '            </Password>\n'
+            xml += '          </LocalAccount>\n'
         xml += '        </LocalAccounts>\n'
         xml += '      </UserAccounts>\n'
 
@@ -1141,11 +1455,10 @@ shutdown /r /t 0
             cmd_order += 1
 
         # Bloatware removal
-        if apps_to_remove:
-            apps_str = "', '".join(apps_to_remove)
+        for mode, apps in apps_by_mode.items():
             _add_firstlogon_cmd(
-                'powershell.exe -NoProfile -Command "$apps = @(\'{apps}\'); foreach ($app in $apps) {{ Get-AppxPackage -Name $app -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue; Get-AppxProvisionedPackage -Online | Where-Object {{ $_.PackageName -like \\"*$app*\\" }} | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue }}"'.format(apps=apps_str),
-                "Remove bloatware apps"
+                self._build_bloatware_command(apps, mode),
+                f"Remove bloatware apps ({mode})"
             )
 
         # Explorer tweaks
@@ -1239,12 +1552,22 @@ shutdown /r /t 0
         for line in firstlogon_script_lines:
             _add_firstlogon_cmd(line, "Custom script")
 
+        webhook_cmd = self._build_webhook_command()
+        if webhook_cmd:
+            _add_firstlogon_cmd(webhook_cmd, "Send deployment completion webhook")
+
         # Panther password cleanup (should run last)
         if self.cleanup_panther_password.get():
             _add_firstlogon_cmd('cmd /c del /q /f "C:\\Windows\\Panther\\unattend.xml" 2>nul', "Clean up Panther unattend.xml (remove stored password)")
 
         xml += '      </FirstLogonCommands>\n'
         xml += '    </component>\n'
+        if self.audit_mode.get():
+            xml += self._component_open("Microsoft-Windows-Deployment")
+            xml += '      <Reseal>\n'
+            xml += '        <Mode>Audit</Mode>\n'
+            xml += '      </Reseal>\n'
+            xml += '    </component>\n'
         xml += '  </settings>\n'
         xml += '</unattend>\n'
 
@@ -1261,6 +1584,192 @@ shutdown /r /t 0
         """
         return self.generate_unattend_xml()
 
+    def generate_powershell_bootstrap(self):
+        """Generate an optional PowerShell bootstrap that can be Authenticode signed."""
+        user = self.github_user.get()
+        repo = self.github_repo.get()
+        branch = self.github_branch.get()
+        unattend_url = f"https://raw.githubusercontent.com/{user}/{repo}/refs/heads/{branch}/unattend.xml"
+        lines = [
+            "#requires -version 5.1",
+            f"# {APP_NAME} v{APP_VERSION} bootstrap",
+            "$ErrorActionPreference = 'Stop'",
+            "$panther = 'C:\\Windows\\Panther'",
+            "New-Item -ItemType Directory -Path $panther -Force | Out-Null",
+            f"$unattendUrl = '{self._ps_single_quote(unattend_url)}'",
+            "$unattendPath = Join-Path $panther 'unattend.xml'",
+            "Invoke-WebRequest -Uri $unattendUrl -OutFile $unattendPath",
+        ]
+        if self.bypass_nro.get():
+            lines.append("reg add 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE' /v BypassNRO /t REG_DWORD /d 1 /f | Out-Null")
+        if self.msa_localonly_bypass.get():
+            lines.append("Start-Process 'ms-cxh://setaddlocalonly'")
+        if self.bypass_requirements.get():
+            for check in ["BypassTPMCheck", "BypassRAMCheck", "BypassSecureBootCheck", "BypassStorageCheck", "BypassCPUCheck"]:
+                lines.append(f"reg add 'HKLM\\SYSTEM\\Setup\\LabConfig' /v {check} /t REG_DWORD /d 1 /f | Out-Null")
+        if self.disable_telemetry.get():
+            lines.append("reg add 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection' /v AllowTelemetry /t REG_DWORD /d 0 /f | Out-Null")
+        lines.extend([
+            "Write-Host 'Setup complete. Restarting in 5 seconds...'",
+            "Start-Sleep -Seconds 5",
+            "Restart-Computer -Force",
+            "",
+        ])
+        return "\n".join(lines)
+
+    def generate_startnet_cmd(self):
+        return """@echo off
+wpeinit
+set SCRIPTROOT=%~dp0
+if exist "%SCRIPTROOT%bypass.cmd" call "%SCRIPTROOT%bypass.cmd"
+"""
+
+    def generate_iso_helper_ps1(self):
+        return f"""# {APP_NAME} v{APP_VERSION} ISO injection helper
+param(
+    [Parameter(Mandatory=$true)][string]$IsoPath,
+    [string]$WorkDir = (Join-Path $PSScriptRoot 'iso-work'),
+    [string]$OutputIso = (Join-Path $PSScriptRoot 'bypassnro-custom.iso'),
+    [string]$OscdimgPath = 'oscdimg.exe'
+)
+$ErrorActionPreference = 'Stop'
+if (-not (Test-Path $IsoPath)) {{ throw "ISO not found: $IsoPath" }}
+$oscdimg = Get-Command $OscdimgPath -ErrorAction SilentlyContinue
+if (-not $oscdimg) {{
+    $candidate = "${{env:ProgramFiles(x86)}}\\Windows Kits\\10\\Assessment and Deployment Kit\\Deployment Tools\\amd64\\Oscdimg\\oscdimg.exe"
+    if (Test-Path $candidate) {{ $OscdimgPath = $candidate }} else {{ throw 'oscdimg.exe not found. Install the Windows ADK Deployment Tools or pass -OscdimgPath.' }}
+}}
+if (Test-Path $WorkDir) {{ Remove-Item -LiteralPath $WorkDir -Recurse -Force }}
+New-Item -ItemType Directory -Path $WorkDir | Out-Null
+$image = Mount-DiskImage -ImagePath $IsoPath -PassThru
+try {{
+    $volume = $image | Get-Volume
+    robocopy "$($volume.DriveLetter):\\" $WorkDir /MIR | Out-Null
+}} finally {{
+    Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+}}
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'autounattend.xml') -Destination (Join-Path $WorkDir 'autounattend.xml') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'bypass.cmd') -Destination (Join-Path $WorkDir 'bypass.cmd') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'unattend.xml') -Destination (Join-Path $WorkDir 'unattend.xml') -Force
+& $OscdimgPath -m -o -u2 -udfver102 -bootdata:2#p0,e,b"$WorkDir\\boot\\etfsboot.com"#pEF,e,b"$WorkDir\\efi\\microsoft\\boot\\efisys.bin" $WorkDir $OutputIso
+Write-Host "Created $OutputIso"
+"""
+
+    def generate_usb_helper_ps1(self):
+        return f"""# {APP_NAME} v{APP_VERSION} USB staging helper
+param(
+    [Parameter(Mandatory=$true)][ValidatePattern('^[A-Z]$')][string]$DriveLetter,
+    [string]$IsoPath = ''
+)
+$ErrorActionPreference = 'Stop'
+$target = "$DriveLetter`:\\"
+$volume = Get-Volume -DriveLetter $DriveLetter -ErrorAction Stop
+if ($volume.DriveType -ne 'Removable') {{ throw "$target is not a removable volume." }}
+if ($volume.FileSystem -ne 'FAT32') {{ throw "$target must be FAT32 for UEFI boot." }}
+if ($IsoPath) {{
+    $image = Mount-DiskImage -ImagePath $IsoPath -PassThru
+    try {{
+        $sourceVolume = $image | Get-Volume
+        robocopy "$($sourceVolume.DriveLetter):\\" $target /E | Out-Null
+    }} finally {{
+        Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+    }}
+}}
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'autounattend.xml') -Destination (Join-Path $target 'autounattend.xml') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'bypass.cmd') -Destination (Join-Path $target 'bypass.cmd') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'unattend.xml') -Destination (Join-Path $target 'unattend.xml') -Force
+Write-Host "Staged bypass files to $target"
+"""
+
+    def generate_registry_reference_html(self):
+        rows = [
+            ("BypassNRO", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\OOBE", "Allows offline OOBE flow where supported."),
+            ("LabConfig bypass values", "HKLM\\SYSTEM\\Setup\\LabConfig", "Bypasses TPM, RAM, Secure Boot, storage, and CPU setup checks."),
+            ("AllowTelemetry", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "Disables optional telemetry when set to 0 on supported editions."),
+            ("LongPathsEnabled", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem", "Enables Win32 long path support."),
+            ("PreventDeviceEncryption", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\BitLocker", "Prevents automatic device encryption during setup."),
+            ("HideFirstRunExperience", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge", "Suppresses Microsoft Edge first-run dialogs."),
+            ("SearchboxTaskbarMode", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Search", "Controls taskbar search visibility."),
+        ]
+        body_rows = "\n".join(
+            f"<tr><td>{xml_escape(name)}</td><td><code>{xml_escape(path)}</code></td><td>{xml_escape(effect)}</td></tr>"
+            for name, path, effect in rows
+        )
+        return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{APP_NAME} v{APP_VERSION} Registry Reference</title>
+<style>
+body {{ background:#121212; color:#f5f5f5; font-family:Segoe UI,Arial,sans-serif; margin:32px; }}
+table {{ border-collapse:collapse; width:100%; }}
+th,td {{ border:1px solid #404040; padding:10px; text-align:left; }}
+th {{ background:#1e1e1e; }}
+code {{ color:#1ed760; }}
+</style>
+</head>
+<body>
+<h1>{APP_NAME} v{APP_VERSION} Registry Reference</h1>
+<table><thead><tr><th>Setting</th><th>Registry Path</th><th>Effect</th></tr></thead><tbody>
+{body_rows}
+</tbody></table>
+</body>
+</html>
+"""
+
+    def generate_validation_report(self):
+        errors = self.validate_generated_xml()
+        lines = [
+            f"{APP_NAME} v{APP_VERSION} validation report",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "Local checks:",
+            "- unattend.xml well-formed: {}".format("no" if errors else "yes"),
+            f"- target architecture: {self.target_architecture.get()}",
+            f"- Disk 0 partitioning enabled: {self.enable_disk_partitioning.get()}",
+            "",
+            "Windows ADK / WSIM schema validation: not run here; requires the target Windows image catalog from the Windows ADK.",
+        ]
+        if errors:
+            lines.append("")
+            lines.append("Errors:")
+            lines.extend(f"- {err}" for err in errors)
+        return "\n".join(lines) + "\n"
+
+    def _sign_powershell_file(self, path):
+        thumbprint = self.signing_cert_thumbprint.get().replace(" ", "")
+        if not self.sign_powershell_bootstrap.get() or not thumbprint:
+            return
+        ps = (
+            "$cert = Get-ChildItem Cert:\\CurrentUser\\My\\{} -ErrorAction Stop; "
+            "Set-AuthenticodeSignature -FilePath '{}' -Certificate $cert -TimestampServer 'http://timestamp.digicert.com' | Out-String"
+        ).format(thumbprint, path.replace("'", "''"))
+        subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    @staticmethod
+    def _sha256_file(path):
+        digest = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _write_checksum_bundle(self, directory, exported_paths):
+        checksum_path = os.path.join(directory, "SHA256SUMS.txt")
+        with open(checksum_path, 'w', encoding='utf-8') as f:
+            for path in exported_paths:
+                f.write(f"{self._sha256_file(path)}  {os.path.basename(path)}\n")
+        bundle_path = os.path.join(directory, f"bypassnroGen-v{APP_VERSION}-bundle.zip")
+        with zipfile.ZipFile(bundle_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in exported_paths + [checksum_path]:
+                zf.write(path, arcname=os.path.basename(path))
+        return checksum_path, bundle_path
+
     def _get_profile_dict(self):
         """Serialize all current settings into a JSON-serializable dict."""
         profile = {}
@@ -1268,6 +1777,7 @@ shutdown /r /t 0
         bool_keys = [
             'skip_eula', 'skip_machine_oobe', 'skip_user_oobe',
             'hide_online_account', 'hide_local_account', 'auto_logon',
+            'msa_localonly_bypass', 'audit_mode', 'enable_disk_partitioning',
             'obscure_passwords', 'disable_telemetry', 'disable_cortana',
             'disable_consumer_features', 'disable_wifi_sense',
             'disable_activity_history', 'disable_location',
@@ -1285,14 +1795,21 @@ shutdown /r /t 0
             'launch_to_this_pc', 'enable_dark_mode',
             'hide_task_view', 'disable_widgets', 'hide_copilot',
             'small_taskbar', 'output_autounattend',
+            'output_powershell_bootstrap', 'output_iso_helper',
+            'output_usb_helper', 'output_startnet',
+            'output_registry_reference', 'output_validation_report',
+            'output_zip_bundle', 'sign_powershell_bootstrap',
         ]
         str_keys = [
             'github_user', 'github_repo', 'github_branch',
+            'region_preset', 'target_architecture',
             'ui_language', 'locale', 'keyboard', 'timezone',
             'edition_mode', 'windows_edition', 'product_key',
             'account_name', 'account_display', 'account_password',
             'account_group', 'protect_your_pc', 'taskbar_search',
             'computer_name', 'power_plan',
+            'completion_webhook_url', 'completion_webhook_type',
+            'signing_cert_thumbprint',
         ]
         for key in bool_keys:
             profile[key] = getattr(self, key).get()
@@ -1300,6 +1817,8 @@ shutdown /r /t 0
             profile[key] = getattr(self, key).get()
         # Bloatware
         profile['bloatware'] = {app_id: var.get() for app_id, var in self.bloatware_apps.items()}
+        profile['bloatware_modes'] = {app_id: var.get() for app_id, var in self.bloatware_app_modes.items()}
+        profile['additional_accounts'] = self._get_text_widget_value('additional_accounts_text')
         # Custom scripts (from text widgets)
         try:
             profile['system_script'] = self.system_script_text.get('1.0', 'end').rstrip('\n')
@@ -1318,6 +1837,16 @@ shutdown /r /t 0
                 for app_id, checked in value.items():
                     if app_id in self.bloatware_apps:
                         self.bloatware_apps[app_id].set(checked)
+            elif key == 'bloatware_modes':
+                for app_id, mode in value.items():
+                    if app_id in self.bloatware_app_modes and mode in self.BLOATWARE_REMOVAL_MODES:
+                        self.bloatware_app_modes[app_id].set(mode)
+            elif key == 'additional_accounts':
+                try:
+                    self.additional_accounts_text.delete('1.0', 'end')
+                    self.additional_accounts_text.insert('1.0', value)
+                except Exception:
+                    pass
             elif key == 'system_script':
                 try:
                     self.system_script_text.delete('1.0', 'end')
@@ -1368,6 +1897,49 @@ shutdown /r /t 0
         except Exception as e:
             messagebox.showerror("Load Error", f"Failed to load profile:\n{str(e)}")
 
+    def _flatten_profile(self, data, prefix=""):
+        flat = {}
+        for key, value in data.items():
+            full_key = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                flat.update(self._flatten_profile(value, full_key))
+            else:
+                flat[full_key] = value
+        return flat
+
+    def diff_profile(self):
+        """Show a diff between current settings and a saved JSON profile."""
+        path = filedialog.askopenfilename(
+            title="Diff Against Profile",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                saved = json.load(f)
+            current = self._flatten_profile(self._get_profile_dict())
+            other = self._flatten_profile(saved)
+            keys = sorted(set(current) | set(other))
+            changes = []
+            for key in keys:
+                left = other.get(key, "<missing>")
+                right = current.get(key, "<missing>")
+                if left != right:
+                    changes.append(f"{key}\n  saved:  {left}\n  current: {right}")
+            text = "\n\n".join(changes) if changes else "No differences."
+
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Profile Diff")
+            dialog.geometry("900x600")
+            dialog.configure(bg=self.colors['bg_dark'])
+            diff_text = tk.Text(dialog, bg='#1e1e1e', fg='#ffffff', insertbackground='#ffffff', font=('Consolas', 10), wrap='none')
+            diff_text.pack(fill='both', expand=True, padx=10, pady=10)
+            diff_text.insert('1.0', text)
+            diff_text.configure(state='disabled')
+        except Exception as e:
+            messagebox.showerror("Diff Error", f"Failed to diff profile:\n{str(e)}")
+
     def update_preview(self):
         """Update the preview texts"""
         self.bypass_preview.delete('1.0', 'end')
@@ -1383,13 +1955,12 @@ shutdown /r /t 0
         
     def export_files(self):
         """Export bypass.cmd and unattend.xml files"""
-        # Validate account name before export
-        account_name = self.account_name.get()
-        if account_name:
-            valid, err = self._validate_account_name(account_name)
-            if not valid:
-                messagebox.showerror("Validation Error", f"Account name invalid:\n{err}")
-                return
+        errors = self.validate_configuration()
+        if not errors:
+            errors.extend(self.validate_generated_xml())
+        if errors:
+            messagebox.showerror("Validation Error", "\n".join(errors))
+            return
 
         # Ask for directory
         directory = filedialog.askdirectory(title="Select Export Directory")
@@ -1397,24 +1968,51 @@ shutdown /r /t 0
             return
 
         try:
-            # Export bypass.cmd
-            bypass_path = os.path.join(directory, "bypass.cmd")
-            with open(bypass_path, 'w', encoding='utf-8') as f:
-                f.write(self.generate_bypass_cmd())
-                
-            # Export unattend.xml
-            unattend_path = os.path.join(directory, "unattend.xml")
-            with open(unattend_path, 'w', encoding='utf-8') as f:
-                f.write(self.generate_unattend_xml())
+            files = [
+                ("bypass.cmd", self.generate_bypass_cmd()),
+                ("unattend.xml", self.generate_unattend_xml()),
+            ]
 
-            exported = [f"bypass.cmd: {bypass_path}", f"unattend.xml: {unattend_path}"]
-
-            # Optionally export autounattend.xml
             if self.output_autounattend.get():
-                autounattend_path = os.path.join(directory, "autounattend.xml")
-                with open(autounattend_path, 'w', encoding='utf-8') as f:
-                    f.write(self.generate_autounattend_xml())
-                exported.append(f"autounattend.xml: {autounattend_path}")
+                files.append(("autounattend.xml", self.generate_autounattend_xml()))
+            if self.output_powershell_bootstrap.get():
+                files.append(("bypass-bootstrap.ps1", self.generate_powershell_bootstrap()))
+            if self.output_iso_helper.get():
+                if not self.output_autounattend.get():
+                    files.append(("autounattend.xml", self.generate_autounattend_xml()))
+                files.append(("inject-iso.ps1", self.generate_iso_helper_ps1()))
+            if self.output_usb_helper.get():
+                if not self.output_autounattend.get() and not any(name == "autounattend.xml" for name, _ in files):
+                    files.append(("autounattend.xml", self.generate_autounattend_xml()))
+                files.append(("stage-usb.ps1", self.generate_usb_helper_ps1()))
+            if self.output_startnet.get():
+                files.append(("startnet.cmd", self.generate_startnet_cmd()))
+            if self.output_registry_reference.get():
+                files.append(("registry-reference.html", self.generate_registry_reference_html()))
+            if self.output_validation_report.get():
+                files.append(("validation-report.txt", self.generate_validation_report()))
+
+            exported_paths = []
+            exported = []
+            seen = set()
+            for filename, content in files:
+                if filename in seen:
+                    continue
+                seen.add(filename)
+                path = os.path.join(directory, filename)
+                with open(path, 'w', encoding='utf-8', newline='') as f:
+                    f.write(content)
+                exported_paths.append(path)
+                exported.append(f"{filename}: {path}")
+
+            bootstrap_path = os.path.join(directory, "bypass-bootstrap.ps1")
+            if self.output_powershell_bootstrap.get() and os.path.exists(bootstrap_path):
+                self._sign_powershell_file(bootstrap_path)
+
+            if self.output_zip_bundle.get():
+                checksum_path, bundle_path = self._write_checksum_bundle(directory, exported_paths)
+                exported.append(f"SHA256SUMS.txt: {checksum_path}")
+                exported.append(f"{os.path.basename(bundle_path)}: {bundle_path}")
 
             files_list = "\n".join(exported)
             messagebox.showinfo("Export Complete",
